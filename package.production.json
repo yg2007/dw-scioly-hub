@@ -1,20 +1,20 @@
 {
   "name": "dw-scioly-hub",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "lint": "eslint .",
+    "db:migrate": "supabase db push",
+    "db:reset": "supabase db reset",
+    "functions:serve": "supabase functions serve",
+    "functions:deploy": "supabase functions deploy"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.0",
     "lucide-react": "^0.577.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -22,8 +22,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
-    "@testing-library/jest-dom": "^6.1.5",
-    "@testing-library/react": "^14.1.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.0",
@@ -31,8 +29,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
-    "jsdom": "^23.0.1",
-    "vite": "^8.0.0",
-    "vitest": "^1.0.4"
+    "supabase": "^2.22.0",
+    "vite": "^8.0.0"
   }
 }
