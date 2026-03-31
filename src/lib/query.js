@@ -71,14 +71,22 @@ export function useQuery(key, queryFn, options = {}) {
         }
       } catch (err) {
         if (isMountedRef.current) {
-          const message = err.message || "An error occurred while fetching data";
-          setError(message);
+          setError(err?.message || "An error occurred while fetching data");
           setData(null);
           setLoading(false);
         }
       }
       return;
     }
+
+    // Safety timeout — prevent infinite loading (15 seconds max)
+    const safetyTimeout = setTimeout(() => {
+      inFlightRequests.delete(key);
+      if (isMountedRef.current) {
+        setError("Request timed out");
+        setLoading(false);
+      }
+    }, 15000);
 
     // Start new request
     const promise = (async () => {
@@ -97,7 +105,6 @@ export function useQuery(key, queryFn, options = {}) {
         }
         return result;
       } catch (err) {
-        // User-friendly error message
         const message = err?.message || "An error occurred while fetching data";
         console.error(`[useQuery ${key}]`, err);
 
@@ -107,6 +114,7 @@ export function useQuery(key, queryFn, options = {}) {
         }
         throw err;
       } finally {
+        clearTimeout(safetyTimeout);
         inFlightRequests.delete(key);
         if (isMountedRef.current) {
           setLoading(false);
@@ -124,7 +132,7 @@ export function useQuery(key, queryFn, options = {}) {
     return () => {
       isMountedRef.current = false;
     };
-  }, [key, enabled]);
+  }, [key, enabled, fetchData]);
 
   const refetch = useCallback(() => {
     invalidateCache(key);

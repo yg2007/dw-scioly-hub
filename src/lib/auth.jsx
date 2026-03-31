@@ -10,12 +10,21 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Safety timeout: never stay loading for more than 10 seconds
+    const timeout = setTimeout(() => {
+      setLoading(false);
+      console.warn("Auth loading timed out after 10s");
+    }, 10000);
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
-      else setLoading(false);
+      else { setLoading(false); clearTimeout(timeout); }
+    }).catch(() => {
+      setLoading(false);
+      clearTimeout(timeout);
     });
 
     // Listen for auth changes
@@ -29,10 +38,11 @@ export function AuthProvider({ children }) {
           setProfile(null);
           setLoading(false);
         }
+        clearTimeout(timeout);
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => { subscription.unsubscribe(); clearTimeout(timeout); };
   }, []);
 
   async function fetchProfile(userId) {
@@ -44,17 +54,26 @@ export function AuthProvider({ children }) {
 
     if (error) {
       console.error("Error fetching profile:", error);
-      // Profile might not exist yet if trigger hasn't fired
-      // Retry once after a short delay
-      setTimeout(async () => {
+      // Profile might not exist yet if trigger hasn't fired — retry up to 3 times
+      let retries = 3;
+      const retry = async () => {
         const { data: retryData } = await supabase
           .from("users")
           .select("*")
           .eq("id", userId)
           .single();
-        setProfile(retryData);
-        setLoading(false);
-      }, 1000);
+        if (retryData) {
+          setProfile(retryData);
+          setLoading(false);
+        } else if (--retries > 0) {
+          setTimeout(retry, 1500);
+        } else {
+          console.error("Profile not found after retries");
+          setProfile(null);
+          setLoading(false);
+        }
+      };
+      setTimeout(retry, 1000);
     } else {
       setProfile(data);
       setLoading(false);
@@ -109,6 +128,7 @@ export function AuthProvider({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");

@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { useQuery, useMutation, invalidateCache } from "../lib/query";
 import { supabase } from "../lib/supabase";
 import { CACHE_TTL_EVENTS } from "../lib/constants";

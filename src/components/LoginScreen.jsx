@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PropTypes from 'prop-types';
 import { ChevronRight, Eye, GraduationCap, Microscope, Shield } from 'lucide-react';
 import { C, TROJAN_SVG } from '../ui';
 
@@ -80,3 +81,7 @@ export default function LoginScreen({ onLogin }) {
     </div>
   );
 }
+
+LoginScreen.propTypes = {
+  onLogin: PropTypes.func.isRequired,
+};

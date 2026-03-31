@@ -1,7 +1,14 @@
 import { useState, useMemo } from "react";
-import { Users, UserPlus, Mail, X, ChevronDown, ChevronUp, Check, AlertTriangle, Shield, GraduationCap, Microscope, Trash2, RefreshCw, Search } from "lucide-react";
+import { Users, UserPlus, Mail, X, ChevronDown, ChevronUp, Check, AlertTriangle, Shield, GraduationCap, Microscope, Trash2, RefreshCw, Search, UserMinus, RotateCcw, BookOpen, Pencil } from "lucide-react";
+import { SkeletonDashboard } from "./shared/Skeleton";
 import { C } from "../ui";
+import { IS_PRODUCTION } from "../lib/featureFlags";
 import { EVENTS, STUDENTS } from "../data/mockData";
+import { useTeamManagement } from "../hooks/useTeamManagement";
+import InviteModal from "./TeamManagement/InviteModal";
+import BulkImportModal from "./TeamManagement/BulkImportModal";
+import EventAssignmentModal from "./TeamManagement/EventAssignmentModal";
+import EventAssignmentsView from "./TeamManagement/EventAssignmentsView";
 
 // ─── Role badge config ───────────────────────────────────────
 const ROLE_CONFIG = {
@@ -19,16 +26,24 @@ const TYPE_COLORS = {
 // ═══════════════════════════════════════════════════════════════
 //  TEAM MANAGEMENT PAGE (Admin only)
 // ═══════════════════════════════════════════════════════════════
-export default function TeamManagement({ navigate }) {
-  const [tab, setTab] = useState("roster");       // roster | invite | events
+export default function TeamManagement() {
+  const [tab, setTab] = useState("roster");
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("all");
   const [showInviteForm, setShowInviteForm] = useState(false);
+  const [editingEventsFor, setEditingEventsFor] = useState(null); // user object for event assignment modal
+  const [showBulkImport, setShowBulkImport] = useState(false);   // bulk import modal
+  const [editingEmailFor, setEditingEmailFor] = useState(null);   // user id whose email is being edited
+  const [emailDraft, setEmailDraft] = useState("");
+  const [emailSaving, setEmailSaving] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // ── PROTOTYPE MODE: use mock data ──────────────────
+  // ── Production: real Supabase data via hook ──────────
+  const team = useTeamManagement();
+
+  // ── Prototype: mock data fallback ────────────────────
   const [mockRoster] = useState(() =>
-    STUDENTS.map((s) => ({
+    IS_PRODUCTION ? [] : STUDENTS.map((s) => ({
       id: s.id,
       full_name: s.name,
       initials: s.initials,
@@ -40,32 +55,45 @@ export default function TeamManagement({ navigate }) {
   );
   const [mockInvites, setMockInvites] = useState([]);
 
-  const roster = mockRoster;
-  const invitations = mockInvites;
-  const events = EVENTS;
+  // ── Unified data source ──────────────────────────────
+  const roster = useMemo(() => IS_PRODUCTION ? (team?.roster || []) : (mockRoster || []), [team?.roster, mockRoster]);
+  const invitations = useMemo(() => IS_PRODUCTION ? (team?.invitations || []) : (mockInvites || []), [team?.invitations, mockInvites]);
+  const events = IS_PRODUCTION ? (team?.events || []) : (EVENTS || []);
+  const loading = IS_PRODUCTION ? team?.loading : false;
 
-  // ── Filtered roster ────────────────────────────────
+  // ── Split roster: active vs alumni ─────────────────
+  const activeRoster = useMemo(() =>
+    (roster || []).filter((u) => !u?.is_alumni),
+    [roster]
+  );
+  const alumniRoster = useMemo(() =>
+    (roster || []).filter((u) => u?.is_alumni === true),
+    [roster]
+  );
+
+  // ── Filtered active roster ──────────────────────────
   const filtered = useMemo(() => {
-    let list = roster;
-    if (filterRole !== "all") list = list.filter((u) => u.role === filterRole);
+    let list = activeRoster;
+    if (filterRole !== "all") list = list.filter((u) => u?.role === filterRole);
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(
         (u) =>
-          u.full_name.toLowerCase().includes(q) ||
-          u.email.toLowerCase().includes(q)
+          (u?.full_name || "").toLowerCase().includes(q) ||
+          (u?.email || "").toLowerCase().includes(q)
       );
     }
     return list;
-  }, [roster, filterRole, search]);
+  }, [activeRoster, filterRole, search]);
 
   // ── Stats ──────────────────────────────────────────
   const stats = useMemo(() => ({
-    total: roster.length,
-    coaches: roster.filter((u) => u.role === "coach").length,
-    students: roster.filter((u) => u.role === "student").length,
-    pending: invitations.length,
-  }), [roster, invitations]);
+    total: activeRoster.length,
+    coaches: activeRoster.filter((u) => u?.role === "coach" || u?.role === "admin").length,
+    students: activeRoster.filter((u) => u?.role === "student").length,
+    alumni: alumniRoster.length,
+    pending: (invitations || []).length,
+  }), [activeRoster, alumniRoster, invitations]);
 
   // ── Toast helper ───────────────────────────────────
   const showToast = (msg, type = "success") => {
@@ -73,23 +101,174 @@ export default function TeamManagement({ navigate }) {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // ── Mock invite handler ────────────────────────────
-  const handleInvite = ({ fullName, email, role, eventIds }) => {
-    setMockInvites((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        full_name: fullName,
-        email,
-        role,
-        event_ids: eventIds,
-        status: "pending",
-        created_at: new Date().toISOString(),
-      },
-    ]);
-    showToast(`Invitation sent to ${email}`);
-    setShowInviteForm(false);
+  // ── Add member directly (no email) ──────────────────
+  const handleAddDirect = async ({ fullName, email, role, eventIds, _keepOpen }) => {
+    try {
+      if (IS_PRODUCTION) {
+        await team.addMemberDirectly({ fullName, email, role, eventIds });
+        // Silently reload the full roster from the server so the next add
+        // always starts with fresh server state (avoids stale-session issues
+        // where subsequent adds fail until logout/login).
+        team.silentRefresh();
+      }
+      showToast(`${fullName} added to the team`);
+      if (!_keepOpen) setShowInviteForm(false);
+    } catch (err) {
+      showToast(err.message || "Failed to add member", "warn");
+      throw err; // re-throw so the modal can stop its spinner
+    }
   };
+
+  // ── Invite handler (send email) ────────────────────
+  const handleInvite = async ({ fullName, email, role, eventIds, _keepOpen }) => {
+    try {
+      if (IS_PRODUCTION) {
+        await team.sendInvite({ fullName, email, role, eventIds });
+      } else {
+        setMockInvites((prev) => [
+          ...prev,
+          { id: Date.now(), full_name: fullName, email, role, event_ids: eventIds, status: "pending", created_at: new Date().toISOString() },
+        ]);
+      }
+      showToast(`Invitation sent to ${email}`);
+      if (!_keepOpen) setShowInviteForm(false);
+    } catch (err) {
+      showToast(err.message || "Failed to send invite", "warn");
+    }
+  };
+
+  // ── Revoke handler ─────────────────────────────────
+  const handleRevoke = async (inv) => {
+    try {
+      if (IS_PRODUCTION) {
+        await team.revokeInvite(inv.id);
+      } else {
+        setMockInvites((prev) => prev.filter((i) => i.id !== inv.id));
+      }
+      showToast("Invite revoked", "warn");
+    } catch (err) {
+      showToast(err.message || "Failed to revoke", "warn");
+    }
+  };
+
+  // ── Resend handler ─────────────────────────────────
+  const handleResend = async (inv) => {
+    try {
+      if (IS_PRODUCTION) {
+        await team.resendInvite(inv);
+      }
+      showToast("Invite resent");
+    } catch (err) {
+      showToast(err.message || "Failed to resend", "warn");
+    }
+  };
+
+  // ── Assign event handler ───────────────────────────
+  const handleAssign = async (userId, eventId) => {
+    try {
+      if (IS_PRODUCTION) {
+        await team.assignEvent(userId, eventId);
+      }
+      showToast("Assigned to event");
+    } catch (err) {
+      showToast(err.message || "Failed to assign", "warn");
+    }
+  };
+
+  // ── Unassign event handler ─────────────────────────
+  const handleUnassign = async (userId, eventId) => {
+    try {
+      if (IS_PRODUCTION) {
+        await team.unassignEvent(userId, eventId);
+      }
+      showToast("Removed from event");
+    } catch (err) {
+      showToast(err.message || "Failed to unassign", "warn");
+    }
+  };
+
+  // ── Toggle event for a user ────────────────────────
+  // The modal's EventAssignmentModal reads from the `roster` prop which
+  // auto-updates via useMemo whenever team.roster state changes, so
+  // there's no need to manually close/reopen the modal.
+  const handleToggleEvent = async (userId, eventId, currentlyAssigned) => {
+    if (currentlyAssigned) {
+      await handleUnassign(userId, eventId);
+    } else {
+      await handleAssign(userId, eventId);
+    }
+    // Silently reload from the server to confirm the change persisted
+    if (IS_PRODUCTION) team.silentRefresh();
+  };
+
+  // ── Remove user handler ────────────────────────────
+  const handleRemove = async (user) => {
+    if (!confirm(`Remove ${user.full_name} from the team? This cannot be undone.`)) return;
+    try {
+      if (IS_PRODUCTION) {
+        await team.removeUser(user.id);
+      }
+      showToast(`${user.full_name} removed`);
+    } catch (err) {
+      showToast(err.message || "Failed to remove", "warn");
+    }
+  };
+
+  // ── Graduate handler (mark as alumni) ─────────────
+  const handleGraduate = async (user) => {
+    if (!confirm(`Mark ${user.full_name} as Alumni? They'll be moved to the Alumni tab and excluded from active rosters. Their quiz history and progress are preserved.`)) return;
+    try {
+      if (IS_PRODUCTION) {
+        await team.setAlumni(user.id, true);
+      }
+      showToast(`${user.full_name} moved to Alumni`);
+    } catch (err) {
+      showToast(err.message || "Failed to update status", "warn");
+    }
+  };
+
+  // ── Email edit handlers ────────────────────────────
+  const handleStartEditEmail = (user) => {
+    setEditingEmailFor(user.id);
+    setEmailDraft(user.email || "");
+  };
+
+  const handleSaveEmail = async (user) => {
+    if (emailDraft.trim() === user.email) { setEditingEmailFor(null); return; }
+    setEmailSaving(true);
+    try {
+      if (IS_PRODUCTION) {
+        await team.updateEmail(user.id, emailDraft);
+      }
+      showToast(`Email updated for ${user.full_name}`);
+      setEditingEmailFor(null);
+    } catch (err) {
+      showToast(err.message || "Failed to update email", "warn");
+    }
+    setEmailSaving(false);
+  };
+
+  const handleCancelEditEmail = () => {
+    setEditingEmailFor(null);
+    setEmailDraft("");
+  };
+
+  // ── Restore handler (reactivate alumni) ───────────
+  const handleRestore = async (user) => {
+    try {
+      if (IS_PRODUCTION) {
+        await team.setAlumni(user.id, false);
+      }
+      showToast(`${user.full_name} restored to Active`);
+    } catch (err) {
+      showToast(err.message || "Failed to restore", "warn");
+    }
+  };
+
+  // ── Loading state ──────────────────────────────────
+  if (loading) {
+    return <SkeletonDashboard stats={3} rows={8} style={{ padding: "4px 0" }} />;
+  }
 
   return (
     <div>
@@ -109,25 +288,41 @@ export default function TeamManagement({ navigate }) {
             Invite coaches and students, assign events, manage roles.
           </p>
         </div>
-        <button
-          onClick={() => setShowInviteForm(true)}
-          style={{
+        <div style={{ display: "flex", gap: 10 }}>
+          {IS_PRODUCTION && (
+            <button onClick={() => team.refresh()} style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "12px 16px",
+              background: C.white, color: C.gray600, border: `1px solid ${C.gray200}`,
+              borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+            }}>
+              <RefreshCw size={14} /> Refresh
+            </button>
+          )}
+          <button onClick={() => setShowBulkImport(true)} style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
+            background: C.white, color: C.navy, border: `1px solid ${C.gray200}`,
+            borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+          }}>
+            <Users size={14} /> Bulk Import
+          </button>
+          <button onClick={() => setShowInviteForm(true)} style={{
             display: "flex", alignItems: "center", gap: 8, padding: "12px 20px",
             background: C.gold, color: C.white, border: "none", borderRadius: 10,
             fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-          }}
-        >
-          <UserPlus size={16} /> Invite Member
-        </button>
+          }}>
+            <UserPlus size={16} /> Invite Member
+          </button>
+        </div>
       </div>
 
       {/* Stats Row */}
       <div style={{ display: "flex", gap: 14, marginBottom: 24 }}>
         {[
-          { label: "Total Members", value: stats.total, color: C.navy },
+          { label: "Active Members", value: stats.total, color: C.navy },
           { label: "Coaches", value: stats.coaches, color: C.gold },
           { label: "Students", value: stats.students, color: C.tealDark },
-          { label: "Pending Invites", value: stats.pending, color: C.slate },
+          { label: "Alumni", value: stats.alumni, color: C.slate },
+          { label: "Pending Invites", value: stats.pending, color: "#9E9E9E" },
         ].map((s, i) => (
           <div key={i} style={{
             flex: 1, background: C.white, borderRadius: 12, padding: "14px 20px",
@@ -145,6 +340,7 @@ export default function TeamManagement({ navigate }) {
       <div style={{ display: "flex", gap: 4, marginBottom: 20, background: C.gray100, borderRadius: 10, padding: 4 }}>
         {[
           { id: "roster", label: "Active Roster", count: stats.total },
+          { id: "alumni", label: "Alumni", count: stats.alumni },
           { id: "pending", label: "Pending Invites", count: stats.pending },
           { id: "events", label: "Event Assignments", count: events.length },
         ].map((t) => (
@@ -197,9 +393,8 @@ export default function TeamManagement({ navigate }) {
       {/* ── ROSTER TAB ──────────────────────────────── */}
       {tab === "roster" && (
         <div style={{ background: C.white, borderRadius: 14, border: `1px solid ${C.gray200}`, overflow: "hidden" }}>
-          {/* Table header */}
           <div style={{
-            display: "grid", gridTemplateColumns: "2fr 2fr 1fr 3fr 80px",
+            display: "grid", gridTemplateColumns: "2fr 2fr 1fr 3fr 110px",
             padding: "12px 20px", background: C.offWhite, fontSize: 11, fontWeight: 700,
             color: C.gray400, textTransform: "uppercase", letterSpacing: 1,
           }}>
@@ -212,30 +407,84 @@ export default function TeamManagement({ navigate }) {
             </div>
           )}
 
-          {filtered.map((user, i) => {
-            const rc = ROLE_CONFIG[user.role] || ROLE_CONFIG.student;
-            const userEvents = events.filter((e) => user.eventIds?.includes(e.id));
+          {(filtered || []).map((user, i) => {
+            const rc = ROLE_CONFIG[user?.role] || ROLE_CONFIG.student;
+            const userEvents = (events || []).filter((e) => (user?.eventIds || []).includes(e?.id));
+            const isEditingEmail = editingEmailFor === user?.id;
             return (
-              <div key={user.id || i} style={{
-                display: "grid", gridTemplateColumns: "2fr 2fr 1fr 3fr 80px",
+              <div key={user?.id || i} style={{
+                display: "grid", gridTemplateColumns: "2fr 2fr 1fr 3fr 110px",
                 padding: "14px 20px", alignItems: "center",
                 borderTop: `1px solid ${C.gray100}`,
               }}>
-                {/* Name + avatar */}
+                {/* Name */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{
                     width: 34, height: 34, borderRadius: 8,
-                    background: user.avatar_color || C.teal,
+                    background: user?.avatar_color || C.teal,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     color: C.white, fontSize: 12, fontWeight: 700,
                   }}>
-                    {user.initials}
+                    {user?.initials}
                   </div>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: C.navy }}>{user.full_name}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: C.navy }}>{user?.full_name}</span>
                 </div>
 
-                {/* Email */}
-                <span style={{ fontSize: 13, color: C.gray600 }}>{user.email}</span>
+                {/* Email — inline edit */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  {isEditingEmail ? (
+                    <>
+                      <input
+                        value={emailDraft}
+                        onChange={(e) => setEmailDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSaveEmail(user);
+                          if (e.key === "Escape") handleCancelEditEmail();
+                        }}
+                        autoFocus
+                        style={{
+                          flex: 1, fontSize: 12, padding: "5px 8px", border: `1.5px solid ${C.teal}`,
+                          borderRadius: 6, outline: "none", fontFamily: "inherit", minWidth: 0,
+                        }}
+                      />
+                      <button onClick={() => handleSaveEmail(user)} disabled={emailSaving} title="Save"
+                        style={{
+                          width: 24, height: 24, borderRadius: 5, border: "none",
+                          background: C.teal, color: C.white, cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                        }}>
+                        <Check size={12} />
+                      </button>
+                      <button onClick={handleCancelEditEmail} title="Cancel"
+                        style={{
+                          width: 24, height: 24, borderRadius: 5, border: `1px solid ${C.gray200}`,
+                          background: C.white, color: C.gray400, cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                        }}>
+                        <X size={12} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 13, color: C.gray600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {user?.email}
+                      </span>
+                      <button onClick={() => handleStartEditEmail(user)} title="Edit email"
+                        style={{
+                          flexShrink: 0, width: 22, height: 22, borderRadius: 4,
+                          border: `1px solid ${C.gray200}`, background: "none",
+                          cursor: "pointer", display: "flex", alignItems: "center",
+                          justifyContent: "center", color: C.gray400,
+                          opacity: 0, transition: "opacity 0.15s",
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
+                        onMouseLeave={(e) => e.currentTarget.style.opacity = 0}
+                      >
+                        <Pencil size={11} />
+                      </button>
+                    </>
+                  )}
+                </div>
 
                 {/* Role badge */}
                 <span style={{
@@ -248,42 +497,151 @@ export default function TeamManagement({ navigate }) {
 
                 {/* Events */}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {userEvents.slice(0, 4).map((ev) => (
-                    <span key={ev.id} style={{
+                  {(userEvents || []).slice(0, 4).map((ev) => (
+                    <span key={ev?.id} style={{
                       padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 500,
-                      background: TYPE_COLORS[ev.type]?.bg || C.gray100,
-                      color: TYPE_COLORS[ev.type]?.text || C.gray600,
+                      background: TYPE_COLORS[ev?.type]?.bg || C.gray100,
+                      color: TYPE_COLORS[ev?.type]?.text || C.gray600,
                     }}>
-                      {ev.icon} {ev.name.length > 14 ? ev.name.slice(0, 14) + "…" : ev.name}
+                      {ev?.icon} {(ev?.name || "").length > 14 ? (ev?.name || "").slice(0, 14) + "…" : ev?.name}
                     </span>
                   ))}
-                  {userEvents.length > 4 && (
+                  {(userEvents || []).length > 4 && (
                     <span style={{ padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: C.gray100, color: C.gray400 }}>
-                      +{userEvents.length - 4}
+                      +{(userEvents || []).length - 4}
                     </span>
                   )}
-                  {userEvents.length === 0 && (
+                  {(userEvents || []).length === 0 && (
                     <span style={{ fontSize: 12, color: C.gray400, fontStyle: "italic" }}>No events</span>
                   )}
                 </div>
 
                 {/* Actions */}
                 <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                  <button
-                    onClick={() => { /* open event assignment modal */ }}
-                    title="Manage events"
+                  <button onClick={() => setEditingEventsFor(user)} title="Edit events"
                     style={{
                       width: 30, height: 30, borderRadius: 6, border: `1px solid ${C.gray200}`,
                       background: C.white, cursor: "pointer", display: "flex",
                       alignItems: "center", justifyContent: "center", color: C.gray400,
-                    }}
-                  >
+                    }}>
                     <ChevronDown size={14} />
                   </button>
+                  {user?.role === "student" && (
+                    <button onClick={() => handleGraduate(user)} title="Mark as Alumni"
+                      style={{
+                        width: 30, height: 30, borderRadius: 6, border: `1px solid ${C.gray200}`,
+                        background: C.white, cursor: "pointer", display: "flex",
+                        alignItems: "center", justifyContent: "center", color: C.tealDark,
+                      }}>
+                      <GraduationCap size={14} />
+                    </button>
+                  )}
+                  {user?.role !== "admin" && (
+                    <button onClick={() => handleRemove(user)} title="Remove member"
+                      style={{
+                        width: 30, height: 30, borderRadius: 6, border: `1px solid ${C.gray200}`,
+                        background: C.white, cursor: "pointer", display: "flex",
+                        alignItems: "center", justifyContent: "center", color: C.coral,
+                      }}>
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ── ALUMNI TAB ──────────────────────────────── */}
+      {tab === "alumni" && (
+        <div>
+          {/* Info banner */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: 12, padding: "14px 20px",
+            background: "linear-gradient(135deg, #EEF2FF 0%, #E8F5E9 100%)",
+            borderRadius: 12, border: "1px solid #C5CAE9", marginBottom: 16,
+          }}>
+            <BookOpen size={18} color={C.tealDark} />
+            <p style={{ margin: 0, fontSize: 13, color: C.gray600, lineHeight: 1.5 }}>
+              Alumni are former students who have graduated or left the team. Their quiz history, mastery data,
+              and build logs are fully preserved. They can still log in but won't appear in active rosters or event assignments.
+            </p>
+          </div>
+
+          <div style={{ background: C.white, borderRadius: 14, border: `1px solid ${C.gray200}`, overflow: "hidden" }}>
+            <div style={{
+              display: "grid", gridTemplateColumns: "2fr 2fr 2fr 100px",
+              padding: "12px 20px", background: C.offWhite, fontSize: 11, fontWeight: 700,
+              color: C.gray400, textTransform: "uppercase", letterSpacing: 1,
+            }}>
+              <span>Name</span><span>Email</span><span>Former Events</span><span></span>
+            </div>
+
+            {alumniRoster.length === 0 && (
+              <div style={{ padding: 40, textAlign: "center", color: C.gray400, fontSize: 14 }}>
+                No alumni yet. Use the 🎓 button on a student's row to graduate them.
+              </div>
+            )}
+
+            {alumniRoster.map((user, i) => {
+              const userEvents = (events || []).filter((e) => (user?.eventIds || []).includes(e?.id));
+              return (
+                <div key={user?.id || i} style={{
+                  display: "grid", gridTemplateColumns: "2fr 2fr 2fr 100px",
+                  padding: "14px 20px", alignItems: "center",
+                  borderTop: `1px solid ${C.gray100}`,
+                  opacity: 0.8,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{
+                      width: 34, height: 34, borderRadius: 8,
+                      background: user?.avatar_color || "#B0BEC5",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      color: C.white, fontSize: 12, fontWeight: 700,
+                    }}>
+                      {user?.initials}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.navy }}>{user?.full_name}</div>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+                        background: "#ECEFF1", color: "#546E7A", marginTop: 2,
+                      }}>
+                        <GraduationCap size={10} /> Alumni
+                      </span>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 13, color: C.gray600 }}>{user?.email}</span>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {(userEvents || []).slice(0, 3).map((ev) => (
+                      <span key={ev?.id} style={{
+                        padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 500,
+                        background: C.gray100, color: C.gray600,
+                      }}>
+                        {ev?.icon} {(ev?.name || "").length > 14 ? (ev?.name || "").slice(0, 14) + "…" : ev?.name}
+                      </span>
+                    ))}
+                    {(userEvents || []).length === 0 && (
+                      <span style={{ fontSize: 12, color: C.gray400, fontStyle: "italic" }}>—</span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                    <button onClick={() => handleRestore(user)} title="Restore to Active"
+                      style={{
+                        display: "flex", alignItems: "center", gap: 5,
+                        padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                        border: `1px solid ${C.tealDark}`, background: C.white,
+                        color: C.tealDark, cursor: "pointer", fontFamily: "inherit",
+                      }}>
+                      <RotateCcw size={12} /> Restore
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -304,16 +662,16 @@ export default function TeamManagement({ navigate }) {
             </div>
           )}
 
-          {invitations.map((inv) => {
-            const rc = ROLE_CONFIG[inv.role] || ROLE_CONFIG.student;
-            const invEvents = events.filter((e) => inv.event_ids?.includes(e.id));
+          {(invitations || []).map((inv) => {
+            const rc = ROLE_CONFIG[inv?.role] || ROLE_CONFIG.student;
+            const invEvents = (events || []).filter((e) => (inv?.event_ids || []).includes(e?.id));
             return (
-              <div key={inv.id} style={{
+              <div key={inv?.id} style={{
                 display: "grid", gridTemplateColumns: "2fr 2fr 1fr 2fr 120px",
                 padding: "14px 20px", alignItems: "center", borderTop: `1px solid ${C.gray100}`,
               }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: C.navy }}>{inv.full_name}</span>
-                <span style={{ fontSize: 13, color: C.gray600 }}>{inv.email}</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: C.navy }}>{inv?.full_name}</span>
+                <span style={{ fontSize: 13, color: C.gray600 }}>{inv?.email}</span>
                 <span style={{
                   display: "inline-flex", alignItems: "center", gap: 4,
                   padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700,
@@ -322,16 +680,15 @@ export default function TeamManagement({ navigate }) {
                   <rc.icon size={12} /> {rc.label}
                 </span>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {invEvents.map((ev) => (
-                    <span key={ev.id} style={{
+                  {(invEvents || []).map((ev) => (
+                    <span key={ev?.id} style={{
                       padding: "3px 8px", borderRadius: 6, fontSize: 11,
                       background: C.gray100, color: C.gray600,
-                    }}>{ev.icon} {ev.name.length > 14 ? ev.name.slice(0, 14) + "…" : ev.name}</span>
+                    }}>{ev?.icon} {(ev?.name || "").length > 14 ? (ev?.name || "").slice(0, 14) + "…" : ev?.name}</span>
                   ))}
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => { /* resend */ showToast("Invite resent"); }}
-                    title="Resend"
+                  <button onClick={() => handleResend(inv)} title="Resend"
                     style={{
                       padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.gray200}`,
                       background: C.white, cursor: "pointer", fontSize: 12, fontWeight: 600,
@@ -339,11 +696,7 @@ export default function TeamManagement({ navigate }) {
                     }}>
                     <RefreshCw size={12} /> Resend
                   </button>
-                  <button onClick={() => {
-                    setMockInvites((prev) => prev.filter((i) => i.id !== inv.id));
-                    showToast("Invite revoked", "warn");
-                  }}
-                    title="Revoke"
+                  <button onClick={() => handleRevoke(inv)} title="Revoke"
                     style={{
                       padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.gray200}`,
                       background: C.white, cursor: "pointer", color: C.coral,
@@ -360,19 +713,27 @@ export default function TeamManagement({ navigate }) {
 
       {/* ── EVENT ASSIGNMENTS TAB ───────────────────── */}
       {tab === "events" && (
-        <EventAssignmentsView events={events} roster={roster} onAssign={(userId, eventId) => {
-          // In prototype mode, update the mock roster's eventIds
-          // In production mode, this would call assignEvent from useTeamManagement
-          showToast(`Assigned to event`);
-        }} />
+        <EventAssignmentsView events={events} roster={activeRoster} onAssign={handleAssign} />
       )}
 
       {/* ── INVITE MODAL ──────────────────────────────── */}
       {showInviteForm && (
-        <InviteModal
+        <InviteModal events={events} onSubmit={handleInvite} onAddDirect={handleAddDirect} onClose={() => setShowInviteForm(false)} />
+      )}
+
+      {/* ── BULK IMPORT MODAL ────────────────────────── */}
+      {showBulkImport && (
+        <BulkImportModal events={events} onAddDirect={handleAddDirect} onClose={() => { setShowBulkImport(false); if (IS_PRODUCTION) team.silentRefresh(); }} />
+      )}
+
+      {/* ── EVENT ASSIGNMENT MODAL ──────────────────────── */}
+      {editingEventsFor && (
+        <EventAssignmentModal
+          user={editingEventsFor}
           events={events}
-          onSubmit={handleInvite}
-          onClose={() => setShowInviteForm(false)}
+          roster={roster}
+          onToggle={handleToggleEvent}
+          onClose={() => setEditingEventsFor(null)}
         />
       )}
 
@@ -390,303 +751,6 @@ export default function TeamManagement({ navigate }) {
           {toast.msg}
         </div>
       )}
-    </div>
-  );
-}
-
-
-// ═══════════════════════════════════════════════════════════════
-//  INVITE MODAL
-// ═══════════════════════════════════════════════════════════════
-function InviteModal({ events, onSubmit, onClose }) {
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState("student");
-  const [selectedEvents, setSelectedEvents] = useState([]);
-  const [error, setError] = useState(null);
-
-  const toggleEvent = (id) => {
-    setSelectedEvents((prev) =>
-      prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id]
-    );
-  };
-
-  const handleSubmit = () => {
-    if (!fullName.trim()) return setError("Name is required");
-    if (!email.includes("@")) return setError("Valid email is required");
-    setError(null);
-    onSubmit({ fullName: fullName.trim(), email: email.trim().toLowerCase(), role, eventIds: selectedEvents });
-  };
-
-  return (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
-      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50,
-    }} onClick={onClose}>
-      <div style={{
-        background: C.white, borderRadius: 20, width: 560, maxHeight: "85vh",
-        overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
-      }} onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div style={{
-          padding: "24px 28px 0", display: "flex", justifyContent: "space-between", alignItems: "center",
-        }}>
-          <div>
-            <h2 style={{ fontSize: 20, fontWeight: 800, color: C.navy, marginBottom: 4 }}>
-              Invite Team Member
-            </h2>
-            <p style={{ fontSize: 13, color: C.gray400 }}>They'll receive an email to sign in with Google.</p>
-          </div>
-          <button onClick={onClose} style={{
-            width: 32, height: 32, borderRadius: 8, border: `1px solid ${C.gray200}`,
-            background: C.white, cursor: "pointer", display: "flex",
-            alignItems: "center", justifyContent: "center", color: C.gray400,
-          }}>
-            <X size={16} />
-          </button>
-        </div>
-
-        <div style={{ padding: "20px 28px 28px" }}>
-          {/* Error */}
-          {error && (
-            <div style={{
-              padding: "10px 14px", borderRadius: 8, background: "#FDE8EC",
-              color: C.coral, fontSize: 13, fontWeight: 500, marginBottom: 16,
-              display: "flex", alignItems: "center", gap: 6,
-            }}>
-              <AlertTriangle size={14} /> {error}
-            </div>
-          )}
-
-          {/* Name */}
-          <label style={{ display: "block", marginBottom: 14 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: C.gray600, textTransform: "uppercase", letterSpacing: 1 }}>
-              Full Name
-            </span>
-            <input value={fullName} onChange={(e) => setFullName(e.target.value)}
-              placeholder="e.g. Jordan Smith"
-              style={{
-                display: "block", width: "100%", marginTop: 6, padding: "12px 14px",
-                border: `1px solid ${C.gray200}`, borderRadius: 10, fontSize: 14,
-                fontFamily: "inherit", outline: "none", boxSizing: "border-box",
-              }}
-            />
-          </label>
-
-          {/* Email */}
-          <label style={{ display: "block", marginBottom: 14 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: C.gray600, textTransform: "uppercase", letterSpacing: 1 }}>
-              Email Address
-            </span>
-            <input value={email} onChange={(e) => setEmail(e.target.value)}
-              placeholder="e.g. jordan.smith@school.edu"
-              type="email"
-              style={{
-                display: "block", width: "100%", marginTop: 6, padding: "12px 14px",
-                border: `1px solid ${C.gray200}`, borderRadius: 10, fontSize: 14,
-                fontFamily: "inherit", outline: "none", boxSizing: "border-box",
-              }}
-            />
-          </label>
-
-          {/* Role */}
-          <div style={{ marginBottom: 18 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: C.gray600, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 8 }}>
-              Role
-            </span>
-            <div style={{ display: "flex", gap: 10 }}>
-              {[
-                { id: "student", label: "Student", icon: GraduationCap, desc: "Takes quizzes, views study paths" },
-                { id: "coach", label: "Event Coach", icon: Microscope, desc: "Manages assigned events" },
-              ].map((r) => (
-                <button key={r.id} onClick={() => setRole(r.id)} style={{
-                  flex: 1, padding: "14px 16px", borderRadius: 12, cursor: "pointer",
-                  border: role === r.id ? `2px solid ${C.gold}` : `1px solid ${C.gray200}`,
-                  background: role === r.id ? C.goldLight : C.white,
-                  fontFamily: "inherit", textAlign: "left",
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <r.icon size={16} color={role === r.id ? C.gold : C.gray400} />
-                    <span style={{ fontSize: 14, fontWeight: 700, color: role === r.id ? C.gold : C.navy }}>
-                      {r.label}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: 12, color: C.gray400 }}>{r.desc}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Event Selection */}
-          <div style={{ marginBottom: 20 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: C.gray600, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 8 }}>
-              Assign Events <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: C.gray400 }}>(optional — can do later)</span>
-            </span>
-            <div style={{
-              display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6,
-              maxHeight: 240, overflow: "auto", padding: 2,
-            }}>
-              {events.map((ev) => {
-                const sel = selectedEvents.includes(ev.id);
-                return (
-                  <button key={ev.id} onClick={() => toggleEvent(ev.id)} style={{
-                    display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
-                    borderRadius: 8, cursor: "pointer", textAlign: "left", fontFamily: "inherit",
-                    border: sel ? `2px solid ${C.teal}` : `1px solid ${C.gray200}`,
-                    background: sel ? "#E2F0E6" : C.white,
-                  }}>
-                    <span style={{ fontSize: 18, flexShrink: 0 }}>{ev.icon}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: sel ? C.tealDark : C.navy }}>
-                      {ev.name}
-                    </span>
-                    {sel && <Check size={14} color={C.teal} style={{ marginLeft: "auto" }} />}
-                  </button>
-                );
-              })}
-            </div>
-            {selectedEvents.length > 0 && (
-              <p style={{ fontSize: 12, color: C.tealDark, fontWeight: 600, marginTop: 8 }}>
-                {selectedEvents.length} event{selectedEvents.length > 1 ? "s" : ""} selected
-              </p>
-            )}
-          </div>
-
-          {/* Submit */}
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={onClose} style={{
-              flex: 1, padding: "14px", borderRadius: 10, border: `1px solid ${C.gray200}`,
-              background: C.white, color: C.gray600, fontSize: 14, fontWeight: 600,
-              cursor: "pointer", fontFamily: "inherit",
-            }}>
-              Cancel
-            </button>
-            <button onClick={handleSubmit} style={{
-              flex: 2, padding: "14px", borderRadius: 10, border: "none",
-              background: C.gold, color: C.white, fontSize: 14, fontWeight: 700,
-              cursor: "pointer", fontFamily: "inherit",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            }}>
-              <Mail size={16} /> Send Invitation
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
-// ═══════════════════════════════════════════════════════════════
-//  EVENT ASSIGNMENTS VIEW (shows each event → who's assigned)
-// ═══════════════════════════════════════════════════════════════
-function EventAssignmentsView({ events, roster, onAssign }) {
-  const [expandedEvent, setExpandedEvent] = useState(null);
-
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-      {events.map((ev) => {
-        const assigned = roster.filter((u) => u.eventIds?.includes(ev.id));
-        const expanded = expandedEvent === ev.id;
-        const tc = TYPE_COLORS[ev.type] || {};
-
-        return (
-          <div key={ev.id} style={{
-            background: C.white, borderRadius: 14, border: `1px solid ${C.gray200}`,
-            overflow: "hidden",
-          }}>
-            <div
-              onClick={() => setExpandedEvent(expanded ? null : ev.id)}
-              style={{
-                display: "flex", alignItems: "center", gap: 12, padding: "14px 18px",
-                cursor: "pointer", userSelect: "none",
-              }}
-            >
-              <span style={{ fontSize: 24 }}>{ev.icon}</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>{ev.name}</div>
-                <div style={{ fontSize: 12, color: C.gray400 }}>
-                  {assigned.length} / {ev.team_size} assigned
-                  <span style={{
-                    marginLeft: 8, padding: "2px 8px", borderRadius: 4,
-                    fontSize: 10, fontWeight: 700, textTransform: "uppercase",
-                    background: tc.bg, color: tc.text,
-                  }}>{ev.type}</span>
-                </div>
-              </div>
-              {/* Fill indicator */}
-              <div style={{
-                width: 40, height: 40, borderRadius: 10,
-                background: assigned.length >= ev.team_size ? "#E2F0E6" : C.gray100,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 13, fontWeight: 800,
-                color: assigned.length >= ev.team_size ? C.tealDark : C.gray400,
-              }}>
-                {assigned.length}/{ev.team_size}
-              </div>
-              {expanded ? <ChevronUp size={16} color={C.gray400} /> : <ChevronDown size={16} color={C.gray400} />}
-            </div>
-
-            {expanded && (
-              <div style={{ padding: "0 18px 14px", borderTop: `1px solid ${C.gray100}` }}>
-                {assigned.length === 0 ? (
-                  <p style={{ fontSize: 13, color: C.gray400, padding: "12px 0", fontStyle: "italic" }}>
-                    No one assigned yet.
-                  </p>
-                ) : (
-                  assigned.map((u) => (
-                    <div key={u.id} style={{
-                      display: "flex", alignItems: "center", gap: 10, padding: "8px 0",
-                      borderBottom: `1px solid ${C.gray100}`,
-                    }}>
-                      <div style={{
-                        width: 28, height: 28, borderRadius: 7,
-                        background: u.avatar_color || C.teal,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        color: C.white, fontSize: 10, fontWeight: 700,
-                      }}>
-                        {u.initials}
-                      </div>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: C.navy, flex: 1 }}>
-                        {u.full_name}
-                      </span>
-                      <span style={{
-                        fontSize: 11, padding: "2px 8px", borderRadius: 4,
-                        background: ROLE_CONFIG[u.role]?.bg, color: ROLE_CONFIG[u.role]?.color,
-                        fontWeight: 600,
-                      }}>
-                        {ROLE_CONFIG[u.role]?.label}
-                      </span>
-                    </div>
-                  ))
-                )}
-
-                {/* Unassigned students for quick-add */}
-                {assigned.length < ev.team_size && (
-                  <div style={{ marginTop: 10 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: 1 }}>
-                      Quick Add
-                    </span>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-                      {roster
-                        .filter((u) => !u.eventIds?.includes(ev.id) && u.role === "student")
-                        .slice(0, 6)
-                        .map((u) => (
-                          <button key={u.id} onClick={() => onAssign?.(u.id, ev.id)} style={{
-                            padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600,
-                            border: `1px dashed ${C.gray200}`, background: C.offWhite,
-                            color: C.gray600, cursor: "pointer", fontFamily: "inherit",
-                          }}>
-                            + {u.full_name.split(" ")[0]}
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
     </div>
   );
 }

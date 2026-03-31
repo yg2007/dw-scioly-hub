@@ -113,8 +113,9 @@ export function sanitizeTopicInput(topic) {
     throw new Error("Topic must be a non-empty string");
   }
 
-  // Strip non-alphanumeric except spaces, &, and hyphens
+  // Strip HTML tags, then non-alphanumeric except spaces, &, and hyphens
   let sanitized = topic
+    .replace(/<[^>]*>?/gm, "")
     .replace(/[^a-zA-Z0-9\s&-]/g, "")
     .trim()
     .substring(0, MAX_TOPIC_NAME_LENGTH);

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import {
   validateFile,
   validatePhotoFile,
@@ -201,7 +201,7 @@ describe('sanitizeTopicInput', () => {
 
   it('should strip HTML tags', () => {
     const result = sanitizeTopicInput('<script>alert("xss")</script>Biology')
-    expect(result).toBe('scriptBiology')
+    expect(result).toBe('alertxssBiology')
   })
 
   it('should strip special characters while preserving & and -', () => {
@@ -249,19 +249,19 @@ describe('sanitizeTopicInput', () => {
   })
 
   it('should throw error if sanitization results in empty string', () => {
-    expect(() => sanitizeTopicInput('@#$%^&*()')).toThrow(
+    expect(() => sanitizeTopicInput('@#$%^*()')).toThrow(
       'Topic cannot be empty after sanitization'
     )
   })
 
   it('should handle mixed special characters and valid text', () => {
-    const result = sanitizeTopicInput('Ner!!vous Sy@$%tem')
+    const result = sanitizeTopicInput('Ner!!vous Sy@$%stem')
     expect(result).toBe('Nervous System')
   })
 
   it('should preserve numbers in topic', () => {
     const result = sanitizeTopicInput('Biology 101 & Chemistry')
-    expect(result).toBe('Biology 101  Chemistry')
+    expect(result).toBe('Biology 101 & Chemistry')
   })
 
   it('should trim leading and trailing whitespace', () => {

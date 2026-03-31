@@ -15,13 +15,16 @@ import {
   SchedulePage,
   BuildLogPage,
   TeamManagement,
+  PartnershipManagement,
+  StudentCapabilityMatrix,
+  ErrorBoundary,
 } from './components';
 import { STUDENTS } from './data/mockData';
 
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [userRole, setUserRole] = useState("student"); // student | coach | admin
-  const [currentUser, setCurrentUser] = useState(STUDENTS[0]);
+  const [currentUser] = useState(STUDENTS[0]);
   const [page, setPage] = useState("dashboard");
   const [selectedEvent, setSelectedEvent] = useState(null);
 
@@ -31,7 +34,7 @@ export default function App() {
 
   const navigate = (p, ev) => {
     setPage(p);
-    if (ev) setSelectedEvent(ev);
+    setSelectedEvent(ev || null);
   };
 
   // Guest mode — standalone browse-only experience
@@ -44,6 +47,7 @@ export default function App() {
       <Sidebar page={page} navigate={navigate} userRole={userRole} currentUser={currentUser}
         onLogout={() => { setLoggedIn(false); setPage("dashboard"); }} />
       <main style={{ flex: 1, overflow: "auto", padding: "28px 36px" }}>
+       <ErrorBoundary>
         {page === "dashboard" && userRole === "student" && (
           <StudentDashboard user={currentUser} navigate={navigate} />
         )}
@@ -73,11 +77,18 @@ export default function App() {
           <BuildLogPage event={selectedEvent} user={currentUser} navigate={navigate} />
         )}
         {page === "schedule" && (
-          <SchedulePage navigate={navigate} />
+          <SchedulePage navigate={navigate} userRole={userRole} />
+        )}
+        {page === "capability" && (userRole === "coach" || userRole === "admin") && (
+          <StudentCapabilityMatrix navigate={navigate} />
+        )}
+        {page === "pairings" && (userRole === "coach" || userRole === "admin") && (
+          <PartnershipManagement navigate={navigate} />
         )}
         {page === "team" && userRole === "admin" && (
           <TeamManagement navigate={navigate} />
         )}
+       </ErrorBoundary>
       </main>
     </div>
   );

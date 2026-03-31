@@ -1,3 +1,4 @@
+import PropTypes from 'prop-types';
 import { C } from '../../ui';
 
 export default function MiniStat({ label, value, highlight }) {
@@ -8,3 +9,13 @@ export default function MiniStat({ label, value, highlight }) {
     </div>
   );
 }
+
+MiniStat.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+  highlight: PropTypes.bool,
+};
+
+MiniStat.defaultProps = {
+  highlight: false,
+};

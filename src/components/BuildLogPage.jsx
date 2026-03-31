@@ -1,197 +1,89 @@
-import { useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, LineChart, Line, CartesianGrid, Legend, Cell } from 'recharts';
-import { Brain, Camera, ChevronDown, ChevronUp, Image, Plus, Timer, Wrench, XCircle } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Legend } from 'recharts';
+import { Brain, Camera, ChevronDown, ChevronUp, Image, Plus, Timer, Wrench, XCircle, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { C } from '../ui';
 import { EVENTS } from '../data/mockData';
+import { IS_PRODUCTION } from '../lib/featureFlags';
+import { useEvents } from '../hooks/useEvents';
+import { useAppContext } from '../lib/AppContext';
+import { useCurrentEvent } from '../hooks/useCurrentEvent';
+import { useBuildLogs } from '../hooks/useBuildLogs';
+import { SkeletonDashboard } from './shared/Skeleton';
+import { BUILD_EVENTS, INITIAL_BUILD_RUNS, BUILD_DESIGN_IMAGES, generateBuildDiagnostics } from './BuildLogPage/mockData';
 
-
-const BUILD_EVENTS = EVENTS.filter(e => e.type === "build");
-
-const INITIAL_BUILD_RUNS = {
-  12: [ // Boomilever
-    { id: 1, date: "2026-03-10", mass: 14.2, loadHeld: 8500, efficiency: 598.6, contactDepth: 12, notes: "Balsa cross-braced design #3. Held well but cracked at left joint under max load.", designVersion: "v3", tags: ["crack", "joint-failure"], imageCount: 2 },
-    { id: 2, date: "2026-03-06", mass: 16.8, loadHeld: 7200, efficiency: 428.6, contactDepth: 15, notes: "Thicker members. Heavier but more stable. No cracking. Slow load application.", designVersion: "v3", tags: ["stable", "heavy"], imageCount: 1 },
-    { id: 3, date: "2026-03-01", mass: 12.1, loadHeld: 5400, efficiency: 446.3, contactDepth: 10, notes: "Lightweight attempt. Buckled at center strut before reaching target load.", designVersion: "v2", tags: ["buckling", "lightweight"], imageCount: 1 },
-    { id: 4, date: "2026-02-22", mass: 18.5, loadHeld: 9100, efficiency: 491.9, contactDepth: 15, notes: "First prototype with laminated joints. Very strong but way too heavy.", designVersion: "v1", tags: ["laminated", "heavy"], imageCount: 0 },
-  ],
-  13: [ // Helicopter
-    { id: 1, date: "2026-03-12", flightTime: 8.42, mass: 3.2, notes: "Best flight so far! Blade angle 22° worked well. Slight wobble on descent.", designVersion: "v4", tags: ["personal-best", "wobble"], imageCount: 1 },
-    { id: 2, date: "2026-03-08", flightTime: 6.87, mass: 3.5, notes: "Added counterweight. Too heavy, fell fast. Blade flex issue.", designVersion: "v3", tags: ["heavy", "blade-flex"], imageCount: 2 },
-    { id: 3, date: "2026-03-03", flightTime: 7.15, mass: 2.8, notes: "Lighter build. Good float time but spins off course. Need better balance.", designVersion: "v3", tags: ["off-course", "balance"], imageCount: 0 },
-    { id: 4, date: "2026-02-25", flightTime: 5.23, mass: 4.1, notes: "Prototype with paper blades. Way too heavy. Switching to balsa.", designVersion: "v2", tags: ["heavy", "prototype"], imageCount: 1 },
-  ],
-  14: [ // Hovercraft
-    { id: 1, date: "2026-03-11", runTime: 4.32, distance: 8.0, accuracy: 92, notes: "Best accuracy yet. Skirt seal improved with tape. Slight drift left.", designVersion: "v3", tags: ["accurate", "drift"], imageCount: 1 },
-    { id: 2, date: "2026-03-07", runTime: 3.89, distance: 8.0, accuracy: 78, notes: "Fast but inaccurate. Motor too powerful for fine control.", designVersion: "v2", tags: ["fast", "inaccurate"], imageCount: 0 },
-    { id: 3, date: "2026-02-28", runTime: 5.67, distance: 8.0, accuracy: 85, notes: "New fan mount. Slower but more controlled. Skirt leak on right side.", designVersion: "v2", tags: ["controlled", "skirt-leak"], imageCount: 2 },
-  ],
-  15: [ // Mission Possible
-    { id: 1, date: "2026-03-09", completionTime: 62, actionsCompleted: 8, totalActions: 10, notes: "Steps 7-8 failed. Marble didn't trigger lever. Need steeper ramp angle.", designVersion: "v2", tags: ["ramp-issue", "incomplete"], imageCount: 1 },
-    { id: 2, date: "2026-03-04", completionTime: 78, actionsCompleted: 10, totalActions: 10, notes: "Full completion! But slow. Dominoes took 15 sec. Need tighter spacing.", designVersion: "v2", tags: ["complete", "slow"], imageCount: 3 },
-    { id: 3, date: "2026-02-27", completionTime: 45, actionsCompleted: 6, totalActions: 10, notes: "Steps 4-10 failed. Pulley string snapped. Using stronger cord next time.", designVersion: "v1", tags: ["string-break", "incomplete"], imageCount: 0 },
-  ],
-  16: [ // Scrambler
-    { id: 1, date: "2026-03-13", runTime: 2.84, targetDistance: 750, actualDistance: 738, eggIntact: true, notes: "Closest run yet! 12cm off target. Egg survived. Need finer braking adjustment.", designVersion: "v3", tags: ["close", "egg-safe"], imageCount: 1 },
-    { id: 2, date: "2026-03-08", runTime: 2.51, targetDistance: 750, actualDistance: 692, eggIntact: false, notes: "Fast but overshot braking point. Egg cracked on rebound. Softer bumper needed.", designVersion: "v3", tags: ["egg-crack", "overshoot"], imageCount: 2 },
-    { id: 3, date: "2026-03-02", runTime: 3.12, targetDistance: 750, actualDistance: 745, eggIntact: true, notes: "Very accurate! But too slow. Need more counterweight for faster acceleration.", designVersion: "v2", tags: ["accurate", "slow"], imageCount: 0 },
-  ],
-};
-
-const BUILD_DESIGN_IMAGES = {
-  12: [
-    { id: 1, name: "Boomilever v3 — Side View", date: "2026-03-10", description: "Cross-braced design with reinforced joints. Note the 45° angle members.", version: "v3" },
-    { id: 2, name: "Joint Detail — Epoxy Application", date: "2026-03-09", description: "Close-up of laminated joint with epoxy. 3 layers of balsa.", version: "v3" },
-    { id: 3, name: "Boomilever v2 — Failed Center Strut", date: "2026-03-01", description: "Post-test photo showing buckling at center strut.", version: "v2" },
-  ],
-  13: [
-    { id: 1, name: "Helicopter v4 — Blade Assembly", date: "2026-03-12", description: "22° blade angle with balsa blades. Lighter assembly.", version: "v4" },
-    { id: 2, name: "Counterweight Test Setup", date: "2026-03-08", description: "Testing different counterweight positions.", version: "v3" },
-  ],
-  16: [
-    { id: 1, name: "Scrambler v3 — Braking System", date: "2026-03-13", description: "Adjustable brake arm with rubber contact pad.", version: "v3" },
-    { id: 2, name: "Egg Cradle Close-up", date: "2026-03-08", description: "Foam-lined cradle. Cracked on this run — adding more padding.", version: "v3" },
-  ],
-};
-
-// AI Diagnostics Engine for Build Events
-function generateBuildDiagnostics(eventId, runs) {
-  if (!runs || runs.length < 2) return { issues: [], suggestions: [], trend: "insufficient" };
-
-  const eventName = EVENTS.find(e => e.id === eventId)?.name || "Build Event";
-  const issues = [];
-  const suggestions = [];
-
-  if (eventId === 12) { // Boomilever
-    const avgEfficiency = runs.reduce((s, r) => s + (r.efficiency || 0), 0) / runs.length;
-    const hasCracking = runs.some(r => r.tags?.includes("crack") || r.tags?.includes("joint-failure"));
-    const hasBuckling = runs.some(r => r.tags?.includes("buckling"));
-    const tooHeavy = runs.filter(r => r.mass > 16).length > runs.length / 2;
-    const bestEfficiency = Math.max(...runs.map(r => r.efficiency || 0));
-    const worstEfficiency = Math.min(...runs.map(r => r.efficiency || 0));
-
-    if (hasCracking) {
-      issues.push({ severity: "high", area: "Joint Integrity", detail: "Cracking detected at joints under load. This suggests the adhesive bond or wood grain orientation isn't distributing stress evenly.", icon: "🔴" });
-      suggestions.push("Apply epoxy in thin, even layers and clamp joints for at least 4 hours. Consider adding small gusset plates (triangular reinforcements) at critical joints.");
-      suggestions.push("Check wood grain direction — grain should run along the length of each member for maximum tensile strength. Cross-grain pieces are prone to splitting.");
-    }
-    if (hasBuckling) {
-      issues.push({ severity: "high", area: "Member Buckling", detail: "Center strut buckling indicates the member is too slender for the compressive load. The slenderness ratio is likely too high.", icon: "🔴" });
-      suggestions.push("Increase cross-section of compression members (struts) or add lateral bracing. For balsa, a 2:1 width-to-thickness ratio helps resist buckling.");
-      suggestions.push("Consider laminating two thinner strips together — this creates a stronger composite section than a single piece of the same total thickness.");
-    }
-    if (tooHeavy) {
-      issues.push({ severity: "medium", area: "Excessive Mass", detail: `${runs.filter(r => r.mass > 16).length} of ${runs.length} builds exceeded 16g. Higher mass directly reduces your efficiency score.`, icon: "🟡" });
-      suggestions.push("Target 12-14g for optimal efficiency. Remove material from low-stress areas — the middle sections of tension members can often be thinner.");
-    }
-    if (bestEfficiency > 0) {
-      issues.push({ severity: "info", area: "Efficiency Trend", detail: `Best efficiency: ${bestEfficiency.toFixed(1)} (Load/Mass). Your range is ${worstEfficiency.toFixed(1)} to ${bestEfficiency.toFixed(1)}.`, icon: "📊" });
-      suggestions.push(`Top state-level teams achieve 700+ efficiency. You're at ${bestEfficiency.toFixed(1)} — focus on reducing mass while maintaining the load capacity of your v3 design.`);
-    }
-  }
-
-  else if (eventId === 13) { // Helicopter
-    const times = runs.map(r => r.flightTime || 0);
-    const bestTime = Math.max(...times);
-    const hasWobble = runs.some(r => r.tags?.includes("wobble") || r.tags?.includes("off-course"));
-    const hasBalanceIssue = runs.some(r => r.tags?.includes("balance"));
-    const hasBladeFlex = runs.some(r => r.tags?.includes("blade-flex"));
-    const improving = times.length >= 2 && times[0] > times[times.length - 1];
-
-    if (hasWobble || hasBalanceIssue) {
-      issues.push({ severity: "high", area: "Flight Stability", detail: "Wobble and off-course behavior indicate a center-of-gravity imbalance or inconsistent blade geometry.", icon: "🔴" });
-      suggestions.push("Ensure all blades are identical in weight and angle. Even 0.5° difference between blades causes wobble. Use a protractor jig for consistent blade angles.");
-      suggestions.push("Check the center shaft is perfectly vertical. A bent or angled shaft creates asymmetric lift and drift.");
-    }
-    if (hasBladeFlex) {
-      issues.push({ severity: "medium", area: "Blade Rigidity", detail: "Blade flex under rotation reduces effective lift and wastes energy. Blades should maintain their set angle during flight.", icon: "🟡" });
-      suggestions.push("Stiffen blades with a thin balsa spar along the leading edge, or switch to a slightly thicker material. The blade should feel rigid when you gently push the tip.");
-    }
-    if (improving) {
-      issues.push({ severity: "info", area: "Positive Trend", detail: `Flight times improving: ${times[times.length - 1].toFixed(2)}s → ${times[0].toFixed(2)}s. Best: ${bestTime.toFixed(2)}s.`, icon: "📈" });
-    }
-    suggestions.push(`State-winning helicopters typically achieve 10-14 seconds. Your best is ${bestTime.toFixed(2)}s — consider reducing total mass to under 3g and optimizing blade pitch angle between 20-25°.`);
-  }
-
-  else if (eventId === 16) { // Scrambler
-    const hasEggBreak = runs.some(r => r.eggIntact === false);
-    const accuracyRuns = runs.filter(r => r.targetDistance && r.actualDistance);
-    const avgError = accuracyRuns.length ? accuracyRuns.reduce((s, r) => s + Math.abs(r.targetDistance - r.actualDistance), 0) / accuracyRuns.length : 0;
-    const hasOvershoot = runs.some(r => r.tags?.includes("overshoot"));
-
-    if (hasEggBreak) {
-      issues.push({ severity: "high", area: "Egg Protection", detail: "Egg cracked during at least one run. This is an automatic penalty. The cradle or braking mechanism needs improvement.", icon: "🔴" });
-      suggestions.push("Add more cushioning material (foam, cotton) around the egg cradle. The egg should not touch any hard surface during deceleration.");
-      suggestions.push("Reduce braking force by extending the braking distance — a gentler stop over a longer distance protects the egg better than a sudden stop.");
-    }
-    if (hasOvershoot) {
-      issues.push({ severity: "high", area: "Braking Accuracy", detail: "Vehicle overshooting the target suggests the braking mechanism engages too late or doesn't provide enough friction.", icon: "🔴" });
-      suggestions.push("Calibrate brake engagement point for each target distance. Consider a string-based brake where string length = desired travel distance minus braking distance.");
-    }
-    if (avgError > 0) {
-      issues.push({ severity: "medium", area: "Distance Accuracy", detail: `Average distance error: ${avgError.toFixed(0)}cm from target. Consistency is key for scoring.`, icon: "🟡" });
-      suggestions.push(`Run at least 5 trials at each target distance and record the results. Your error of ${avgError.toFixed(0)}cm can be reduced by fine-tuning the string length for your braking system.`);
-    }
-  }
-
-  else if (eventId === 14) { // Hovercraft
-    const hasDrift = runs.some(r => r.tags?.includes("drift"));
-    const hasSkirtLeak = runs.some(r => r.tags?.includes("skirt-leak"));
-
-    if (hasDrift) {
-      issues.push({ severity: "medium", area: "Directional Control", detail: "Vehicle drifting off course. This could be asymmetric thrust, uneven weight distribution, or a skirt leak on one side.", icon: "🟡" });
-      suggestions.push("Check that the thrust fan is perfectly centered. Even 2-3mm offset creates a turning moment. Use a laser pointer or plumb bob to verify alignment.");
-    }
-    if (hasSkirtLeak) {
-      issues.push({ severity: "high", area: "Skirt Seal", detail: "Air leaking from the skirt reduces lift and causes uneven hovering. This directly affects both speed and accuracy.", icon: "🔴" });
-      suggestions.push("Reinforce skirt attachment with hot glue along the entire perimeter. Test the seal by running the lift fan with the vehicle stationary — listen for hissing and feel for air escape with your hand.");
-    }
-    suggestions.push("For competition tracks, practice on the same surface type (smooth gym floor vs. rough table). Hovercraft behavior changes dramatically with surface friction.");
-  }
-
-  else if (eventId === 15) { // Mission Possible
-    const incompleteRuns = runs.filter(r => r.actionsCompleted < r.totalActions);
-    const hasRampIssue = runs.some(r => r.tags?.includes("ramp-issue"));
-    const hasStringBreak = runs.some(r => r.tags?.includes("string-break"));
-
-    if (incompleteRuns.length > 0) {
-      issues.push({ severity: "high", area: "Reliability", detail: `${incompleteRuns.length} of ${runs.length} runs failed to complete all actions. Reliability is more important than speed.`, icon: "🔴" });
-      suggestions.push("Focus on 100% completion rate before optimizing for speed. Each failed action loses more points than a few extra seconds of time.");
-    }
-    if (hasRampIssue) {
-      issues.push({ severity: "medium", area: "Ramp/Trigger Angle", detail: "Marble failed to trigger the next step — the ramp angle is likely too shallow for reliable energy transfer.", icon: "🟡" });
-      suggestions.push("Increase ramp angle by 5-10° and test 10 times. The marble should trigger the next step at least 9/10 times before you consider it reliable.");
-    }
-    if (hasStringBreak) {
-      issues.push({ severity: "high", area: "Materials Failure", detail: "String/cord broke during a run. Use stronger materials and test them under 2× the expected load.", icon: "🔴" });
-      suggestions.push("Switch to braided fishing line (10lb test) instead of thread or twine. It's stronger, more consistent, and doesn't stretch.");
-    }
-  }
-
-  // Generic suggestions for all build events
-  if (runs.length < 5) {
-    suggestions.push("You have only " + runs.length + " logged runs. Aim for at least 10 practice runs before competition to build consistency and identify patterns.");
-  }
-
-  return { issues, suggestions, trend: runs.length >= 3 ? "sufficient" : "insufficient" };
+// ─── Convert a DB build_entry row → the flat "run" shape the UI expects ──────
+function entryToRun(entry) {
+  const m = entry.measurements || {};
+  return {
+    id: entry.id,
+    date: entry.entry_date,
+    notes: entry.notes,
+    tags: entry.tags || [],
+    imageCount: (entry.photo_paths || []).length,
+    // spread all event-specific measurement fields stored in JSONB
+    ...m,
+  };
 }
 
+export default function BuildLogPage() {
+  const navigate = useNavigate();
+  const { currentUser: user } = useAppContext();
+  const { event } = useCurrentEvent();
+  const { events: prodEvents } = useEvents();
+  const displayEvents = IS_PRODUCTION && prodEvents?.length > 0 ? prodEvents : EVENTS;
+  const buildEventsDisplay = displayEvents.filter(e => e.type === "build");
+  const buildEvents = buildEventsDisplay.filter(e => (user?.events || []).includes(e.id));
 
-
-export default function BuildLogPage({ event, user, navigate }) {
-  const buildEvents = BUILD_EVENTS.filter(e => user.events.includes(e.id));
   const [selectedBuildEvent, setSelectedBuildEvent] = useState(event?.type === "build" ? event : buildEvents[0]);
-  const [runs, setRuns] = useState(INITIAL_BUILD_RUNS);
+  // Mock-mode only state — in production all run data comes from the hook
+  const [mockRuns, setMockRuns] = useState(IS_PRODUCTION ? {} : INITIAL_BUILD_RUNS);
   const [showAddRun, setShowAddRun] = useState(false);
   const [showAddImage, setShowAddImage] = useState(false);
   const [activeTab, setActiveTab] = useState("runs"); // runs | images | diagnostics
   const [expandedRun, setExpandedRun] = useState(null);
   const [newRun, setNewRun] = useState({});
+  const [savingRun, setSavingRun] = useState(false);
 
-  const currentRuns = runs[selectedBuildEvent?.id] || [];
+  // ── Production: real data via useBuildLogs ──────────────────────────────
+  // Always call the hook; enabled: false in prototype mode (userId / eventId = null)
+  const {
+    logs,
+    entries,
+    loading: logsLoading,
+    entriesLoading,
+    createLog,
+    addEntry,
+  } = useBuildLogs(
+    IS_PRODUCTION ? user?.id : null,
+    IS_PRODUCTION ? selectedBuildEvent?.id : null
+  );
+
+  // Auto-create one build log per event the first time a user visits
+  useEffect(() => {
+    if (!IS_PRODUCTION || !user?.id || !selectedBuildEvent?.id) return;
+    if (!logsLoading && logs.length === 0) {
+      createLog(`${selectedBuildEvent.name} Log`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logsLoading, logs.length, user?.id, selectedBuildEvent?.id]);
+
+  // The one log for this event (we keep it simple: one log per user+event)
+  const activeLogId = logs?.[0]?.id ?? null;
+
+  // Stable entry→run converter
+  const toRuns = useCallback((entryList) => entryList.map(entryToRun), []);
+
+  // currentRuns: real entries in production, mock state in prototype
+  const currentRuns = useMemo(() => {
+    if (IS_PRODUCTION) return toRuns(entries);
+    return mockRuns[selectedBuildEvent?.id] || [];
+  }, [entries, mockRuns, selectedBuildEvent?.id, toRuns]);
+
   const currentImages = BUILD_DESIGN_IMAGES[selectedBuildEvent?.id] || [];
-  const diagnostics = generateBuildDiagnostics(selectedBuildEvent?.id, currentRuns);
+  const diagnostics = useMemo(() => generateBuildDiagnostics(selectedBuildEvent?.id, currentRuns), [selectedBuildEvent?.id, currentRuns]);
 
-  // Performance metric helpers per event type
+  // ── Per-event metric helpers ────────────────────────────────────────────
   const getMetricLabel = (evId) => {
     const labels = { 12: "Efficiency", 13: "Flight Time", 14: "Run Time", 15: "Completion", 16: "Accuracy" };
     return labels[evId] || "Score";
@@ -214,7 +106,7 @@ export default function BuildLogPage({ event, user, navigate }) {
   };
 
   // Chart data
-  const chartData = [...currentRuns].reverse().map((run, i) => ({
+  const chartData = useMemo(() => [...currentRuns].reverse().map((run, i) => ({
     run: `#${i + 1}`,
     date: run.date?.slice(5) || "",
     value: getPrimaryMetric(run, selectedBuildEvent?.id),
@@ -223,61 +115,100 @@ export default function BuildLogPage({ event, user, navigate }) {
     ...(selectedBuildEvent?.id === 14 ? { runTime: run.runTime, accuracy: run.accuracy } : {}),
     ...(selectedBuildEvent?.id === 15 ? { actions: ((run.actionsCompleted || 0) / (run.totalActions || 10)) * 100, completionTime: run.completionTime } : {}),
     ...(selectedBuildEvent?.id === 16 ? { error: Math.abs((run.targetDistance || 0) - (run.actualDistance || 0)), time: run.runTime } : {}),
-  }));
+  })), [currentRuns, selectedBuildEvent?.id]);
 
-  const addNewRun = () => {
+  // ── Save a new practice run ─────────────────────────────────────────────
+  const addNewRun = async () => {
     const evId = selectedBuildEvent?.id;
-    const newId = Math.max(0, ...currentRuns.map(r => r.id)) + 1;
-    const baseRun = {
-      id: newId,
-      date: new Date().toISOString().slice(0, 10),
-      designVersion: newRun.designVersion || "v1",
-      notes: newRun.notes || "",
-      tags: newRun.tags ? newRun.tags.split(",").map(t => t.trim()) : [],
-      imageCount: 0,
-    };
 
+    // Build the measurements object — all event-specific fields go here so
+    // they can be stored in the JSONB column and spread back on read.
+    const measurements = { designVersion: newRun.designVersion || "v1" };
     if (evId === 12) {
-      baseRun.mass = parseFloat(newRun.mass) || 0;
-      baseRun.loadHeld = parseFloat(newRun.loadHeld) || 0;
-      baseRun.efficiency = baseRun.mass > 0 ? baseRun.loadHeld / baseRun.mass : 0;
-      baseRun.contactDepth = parseFloat(newRun.contactDepth) || 0;
+      const mass = parseFloat(newRun.mass) || 0;
+      const loadHeld = parseFloat(newRun.loadHeld) || 0;
+      Object.assign(measurements, {
+        mass, loadHeld,
+        efficiency: mass > 0 ? loadHeld / mass : 0,
+        contactDepth: parseFloat(newRun.contactDepth) || 0,
+      });
     } else if (evId === 13) {
-      baseRun.flightTime = parseFloat(newRun.flightTime) || 0;
-      baseRun.mass = parseFloat(newRun.mass) || 0;
+      Object.assign(measurements, {
+        flightTime: parseFloat(newRun.flightTime) || 0,
+        mass: parseFloat(newRun.mass) || 0,
+      });
     } else if (evId === 14) {
-      baseRun.runTime = parseFloat(newRun.runTime) || 0;
-      baseRun.distance = parseFloat(newRun.distance) || 8.0;
-      baseRun.accuracy = parseFloat(newRun.accuracy) || 0;
+      Object.assign(measurements, {
+        runTime: parseFloat(newRun.runTime) || 0,
+        distance: parseFloat(newRun.distance) || 8.0,
+        accuracy: parseFloat(newRun.accuracy) || 0,
+      });
     } else if (evId === 15) {
-      baseRun.completionTime = parseFloat(newRun.completionTime) || 0;
-      baseRun.actionsCompleted = parseInt(newRun.actionsCompleted) || 0;
-      baseRun.totalActions = parseInt(newRun.totalActions) || 10;
+      Object.assign(measurements, {
+        completionTime: parseFloat(newRun.completionTime) || 0,
+        actionsCompleted: parseInt(newRun.actionsCompleted) || 0,
+        totalActions: parseInt(newRun.totalActions) || 10,
+      });
     } else if (evId === 16) {
-      baseRun.runTime = parseFloat(newRun.runTime) || 0;
-      baseRun.targetDistance = parseFloat(newRun.targetDistance) || 750;
-      baseRun.actualDistance = parseFloat(newRun.actualDistance) || 0;
-      baseRun.eggIntact = newRun.eggIntact !== "false";
+      Object.assign(measurements, {
+        runTime: parseFloat(newRun.runTime) || 0,
+        targetDistance: parseFloat(newRun.targetDistance) || 750,
+        actualDistance: parseFloat(newRun.actualDistance) || 0,
+        eggIntact: newRun.eggIntact !== "false",
+      });
     }
 
-    setRuns(prev => ({ ...prev, [evId]: [baseRun, ...(prev[evId] || [])] }));
+    const tags = newRun.tags ? newRun.tags.split(",").map(t => t.trim()).filter(Boolean) : [];
+    const notes = newRun.notes || "";
+
+    if (IS_PRODUCTION) {
+      if (!activeLogId) return; // log not created yet — shouldn't happen
+      setSavingRun(true);
+      try {
+        await addEntry(activeLogId, { notes, measurements, tags });
+      } finally {
+        setSavingRun(false);
+      }
+    } else {
+      // Prototype: push into local state
+      const existingRuns = mockRuns[evId] || [];
+      const newId = Math.max(0, ...existingRuns.map(r => r.id)) + 1;
+      const baseRun = {
+        id: newId,
+        date: new Date().toISOString().slice(0, 10),
+        notes,
+        tags,
+        imageCount: 0,
+        ...measurements,
+      };
+      setMockRuns(prev => ({ ...prev, [evId]: [baseRun, ...(prev[evId] || [])] }));
+    }
+
     setNewRun({});
     setShowAddRun(false);
   };
 
+  // ── Empty-event guard ───────────────────────────────────────────────────
   if (buildEvents.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: 60 }}>
         <Wrench size={48} color={C.gray200} style={{ marginBottom: 16 }} />
         <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, color: C.navy }}>No Build Events Assigned</h2>
         <p style={{ color: C.gray400, fontSize: 14 }}>You don't have any build events. The Build Log is for Boomilever, Helicopter, Hovercraft, Mission Possible, and Scrambler.</p>
-        <button onClick={() => navigate("events")}
+        <button onClick={() => navigate("/events")}
           style={{ marginTop: 16, padding: "10px 20px", borderRadius: 8, border: "none", background: C.teal, color: C.white, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
           Browse Events
         </button>
       </div>
     );
   }
+
+  // ── Production loading skeleton ─────────────────────────────────────────
+  if (IS_PRODUCTION && (logsLoading || entriesLoading)) {
+    return <SkeletonDashboard stats={2} rows={5} style={{ padding: "4px 0" }} />;
+  }
+
+  const isSaving = savingRun;
 
   return (
     <div>
@@ -302,7 +233,7 @@ export default function BuildLogPage({ event, user, navigate }) {
               {ev.name}
               {currentRuns.length > 0 && selectedBuildEvent?.id === ev.id && (
                 <span style={{ background: C.coral, color: C.white, fontSize: 11, fontWeight: 700,
-                  padding: "2px 7px", borderRadius: 100 }}>{(runs[ev.id] || []).length}</span>
+                  padding: "2px 7px", borderRadius: 100 }}>{currentRuns.length}</span>
               )}
             </button>
           ))}
@@ -356,10 +287,6 @@ export default function BuildLogPage({ event, user, navigate }) {
                         <Line type="monotone" dataKey="flightTime" stroke={C.coral} strokeWidth={2.5} name="Flight Time (s)" dot={{ fill: C.coral, r: 4 }} />
                         <Line type="monotone" dataKey="mass" stroke={C.gold} strokeWidth={1.5} strokeDasharray="4 4" name="Mass (g)" dot={{ fill: C.gold, r: 3 }} />
                       </>}
-                      {selectedBuildEvent.id === 16 && <>
-                        <Line type="monotone" dataKey="error" stroke={C.coral} strokeWidth={2.5} name="Distance Error (cm)" dot={{ fill: C.coral, r: 4 }} />
-                        <Line type="monotone" dataKey="time" stroke={C.teal} strokeWidth={1.5} strokeDasharray="4 4" name="Run Time (s)" dot={{ fill: C.teal, r: 3 }} />
-                      </>}
                       {selectedBuildEvent.id === 14 && <>
                         <Line type="monotone" dataKey="runTime" stroke={C.coral} strokeWidth={2.5} name="Run Time (s)" dot={{ fill: C.coral, r: 4 }} />
                         <Line type="monotone" dataKey="accuracy" stroke={C.teal} strokeWidth={1.5} strokeDasharray="4 4" name="Accuracy (%)" dot={{ fill: C.teal, r: 3 }} />
@@ -367,6 +294,10 @@ export default function BuildLogPage({ event, user, navigate }) {
                       {selectedBuildEvent.id === 15 && <>
                         <Line type="monotone" dataKey="actions" stroke={C.coral} strokeWidth={2.5} name="Completion (%)" dot={{ fill: C.coral, r: 4 }} />
                         <Line type="monotone" dataKey="completionTime" stroke={C.gold} strokeWidth={1.5} strokeDasharray="4 4" name="Time (s)" dot={{ fill: C.gold, r: 3 }} />
+                      </>}
+                      {selectedBuildEvent.id === 16 && <>
+                        <Line type="monotone" dataKey="error" stroke={C.coral} strokeWidth={2.5} name="Distance Error (cm)" dot={{ fill: C.coral, r: 4 }} />
+                        <Line type="monotone" dataKey="time" stroke={C.teal} strokeWidth={1.5} strokeDasharray="4 4" name="Run Time (s)" dot={{ fill: C.teal, r: 3 }} />
                       </>}
                       <Legend wrapperStyle={{ fontSize: 11 }} />
                     </LineChart>
@@ -436,10 +367,14 @@ export default function BuildLogPage({ event, user, navigate }) {
                       style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${C.gray200}`,
                         fontSize: 14, fontFamily: "inherit", minHeight: 70, resize: "vertical" }} />
                   </div>
-                  <button onClick={addNewRun}
-                    style={{ padding: "12px 24px", borderRadius: 10, border: "none", background: C.coral,
-                      color: C.white, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-                    Save Practice Run
+                  <button onClick={addNewRun} disabled={isSaving}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 24px", borderRadius: 10, border: "none",
+                      background: isSaving ? C.gray200 : C.coral,
+                      color: isSaving ? C.gray400 : C.white,
+                      fontSize: 14, fontWeight: 700, cursor: isSaving ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+                    {isSaving && <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} />}
+                    {isSaving ? "Saving…" : "Save Practice Run"}
+                    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
                   </button>
                 </div>
               )}
@@ -530,7 +465,7 @@ export default function BuildLogPage({ event, user, navigate }) {
               {currentRuns.length === 0 && (
                 <div style={{ textAlign: "center", padding: 40, color: C.gray400 }}>
                   <Timer size={32} color={C.gray200} style={{ marginBottom: 12 }} />
-                  <p style={{ fontSize: 14 }}>No practice runs logged yet. Click "Log New Practice Run" to get started.</p>
+                  <p style={{ fontSize: 14 }}>No build runs logged yet. Click &quot;Log New Practice Run&quot; to start tracking.</p>
                 </div>
               )}
             </div>
@@ -568,7 +503,6 @@ export default function BuildLogPage({ event, user, navigate }) {
                 {currentImages.map(img => (
                   <div key={img.id} style={{ background: C.white, borderRadius: 14, overflow: "hidden",
                     border: `1px solid ${C.gray200}` }}>
-                    {/* Placeholder for actual image */}
                     <div style={{ height: 160, background: `linear-gradient(135deg, ${C.gray100}, ${C.gray200})`,
                       display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <div style={{ textAlign: "center" }}>
@@ -662,6 +596,28 @@ export default function BuildLogPage({ event, user, navigate }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ─── Small sub-components ──────────────────────────────────────────────────────
+
+function FormField({ label, value, onChange, placeholder }) {
+  return (
+    <div>
+      <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6, color: C.gray600 }}>{label}</label>
+      <input type="text" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.gray200}`,
+          fontSize: 14, fontFamily: "inherit", boxSizing: "border-box" }} />
+    </div>
+  );
+}
+
+function MiniStat({ label, value, highlight }) {
+  return (
+    <div style={{ background: highlight ? "#F5E2DC" : C.offWhite, borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+      <div style={{ fontSize: 18, fontWeight: 800, color: highlight ? C.coral : C.navy }}>{value}</div>
+      <div style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>{label}</div>
     </div>
   );
 }

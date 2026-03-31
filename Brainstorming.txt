@@ -1,0 +1,77 @@
+Unknown 0:00
+Yuri,
+
+Unknown 0:03
+so my current proposition is that the way we make this have is we have like, a user friendly interface, and it starts off with, like, I don't know you start in like this main homepage, and it has, like, your statistics, whatever those may be.
+
+Unknown 0:18
+So tell a bit more of a background story, like, what's your role? What is the team? What's it called? All of those things.
+
+Unknown 0:25
+I don't our team is Daniel Wright, Science Olympiad. I don't know what the website is called yet. We'll have to. We'll think about it. What's your what's your role on the team? I'm a team leader, and at the moment, I am developing this website as a tool to help us, basically, place higher, prepare and score higher on state and nationals. Yeah, state and nationals. I want to roll this out by state. And I don't know what is that. What is state? I'm not exactly sure, but I want to roll it out before then. So, I mean, I'm gonna try to see, how quickly do you think we can develop this, realistically? How long did it take you to develop this bsometer today?
+
+Unknown 1:09
+So, like one day, we can have something definitely today, but so we'll have, how many can you tell me approximately how many students will be using it and how many events will they be prepared for? Can you tell some explain? How does the science olympiad work? Okay, so if we're just targeting it to state and nationals, then about 20, give or take students are going to be using this. Okay, I like that number 20 is the amount of competitors and alternates on our team. And I really kind of just want to make sure that I release it to them first, because they are the goal. How many events? And there are 23 events, I think there are, like 25 a few 25 to 28 how many are academic events? I'm not exactly sure on that number, but I think about five our build events. Wait, let me think possible
+
+Unknown 2:09
+Scrambler. That's okay, yeah, okay. But so, so, so let's say that this is the this tool will help provide individual learning and training opportunities for your teammates, right? So the way I'm thinking of designing that is, the way it works is, first there's like, you're basically, you upload the tests and, yeah, prior test, maybe it's like your test from an invitational. Maybe it's the test that your coach made you take. They're all graded and stuff, but so you know which which answers are correct, which are which one? Yeah. And then you can add in a test key. You have to upload the test key too. That's important. So you upload the test and you upload the test key, and then what the AI thingy does is it basically looks at your answers. And not only does it tell you what you got right and wrong, it also tells you, like, which area you got right and which area you got wrong. And so to facilitate that, we're going to have to upload a copy of the Science Olympiad rules manual to the thing, and we're going to have it interpret that and assimilate that, basically, like, understand that. So that's and then it probably should also determine like, individualized learning path, yeah, yeah. So basically, the Learning Path mechanism that I've developed is, first you generalize, then specialize, then refine. Maybe there's like a refined step between each way, but the point is, you have to get everybody good at like the general stuff. So you have to make sure that they at least know, like their right hand from their left their RNA, from their DNA. Then you really start getting into like, the meat like, so you gotta basically individualize. And the way I see that happening is, like, you have a sidebar for each event, and then you have like, an upload test area, and then you can select, like, what event is this for like, what are we doing this for? You're going to upload a copy of the test and the key, then it's going to spit out some results for you. And you're going to identify like, areas of growth and areas of like, already, you're doing great. And then what it's going to do is maybe it's going to, like, dispense topics that you're going to have to work on. And, I mean, this is already kind of like something that Gemini does. It finds you some nice sources, and it like helps you read on that. So it's basically like a generative AI kind of stuff.
+
+Unknown 4:59
+Maybe later on in the works, we'll have something where it even summarizes the sources for you and provides an overview, and then it also tells you, like, what you specifically got wrong and how you could improve that. And maybe that includes, like, mnemonics or something I know AI is, sometimes it's really good at that, sometimes it's awful at that. So that's maybe, like, a look at the dropping, then it's going to have, like, it's going to ask you questions, and it's going to make you answer these questions, and then maybe those questions are also going to shape your understanding and but so do you want to create, like, personalized quizzes for you? Yes, personalized quizzes would be great. Like.
+
+Unknown 5:44
+A model that I really like is the Scio dot Lee model, where it like, has little questions from all the sample events, and then it's going to, like, ask you these questions, just out of context, but still with enough information that you can answer it so well. I think the key here is that you focus not just on the broad set of topics, but something that's highly specific. Because remember, your team is already highly experienced in these things, in these questions. So exactly, it's important to have a, you know, here's the set of topics that you should that you got, like, really, really well figured out based on your test scores. Here's the set of topics that you still need to study, and here's how you would do it. And then you have an interactive, you know, presentation of questions, and then maybe some kind of a quiz at the end that helps validate whether the knowledge was
+
+Unknown 6:44
+another thing is that you can never really stop learning. So something I want to make sure is, like, on the topics where you've mastered it. And I'm not exactly sure what we should define mastery on, maybe we should just, like, start off with early tests and basically see if your rate of questions right or wrong basically improves or doesn't improve. Hopefully, if it improves, if it doesn't improve, we have a problem. But even if it improves, we should still also like Target new areas that we can learn, and like topics that are somewhat related to it, or maybe like going more in depth on topic.
+
+Unknown 7:20
+Okay,
+
+Unknown 7:23
+because I know going more in depth is a really important thing, especially in these later stages and then afterwards
+
+Unknown 7:32
+the Nationals and states tests, they're all very strictly checked, which is something I like about them, like they have to make it make sense, like, everything has to be on the rules. So all of it might be super duper hard, you at least know, like, what direction you're aiming for. So then maybe it's going to, like, look at past states, test more nationals. It's gonna find that common stuff.
+
+Unknown 8:04
+And an important thing to distinguish is that some events,
+
+Unknown 8:08
+is it? Yeah, okay. So an important thing to distinguish is that some events, they like change year by year. So we're gonna have to make sure that it doesn't like see. All say anatomy stuff. It's just anatomy. We're gonna make it that it sees anatomy for the endocrine system, anatomy for sensory system, anatomy for nervous as, like, separate entities. That's important. And overall, yeah. And then I think one other thing that I should do is you're, like, able to kind of see who your partner is.
+
+Unknown 8:45
+And then, now so that you know that with the partner, you're able to cover a greater set of Yeah, and then maybe, like, by finding out who your partner is, it's going to maybe tailor some topics for you that maybe your partner knows already, and some topics for you that your partner doesn't know. So it's all in harmony. Now, of course, this could have some negative effects, but I also am going to see this as a positive thing, because we can keep ourselves accountable. Well, you can study together, then right on certain things, like, if you both have the same area that you know well, and there's another area that you may not know about.
+
+Unknown 9:28
+And then another thing I totally see happening is, like the coaches interface, so you can, like, select what events you're for, what you're uploading. You can maybe there's gonna be like a special coach past key or something. You're gonna have
+
+Unknown 9:47
+like, Coach roles, and then maybe an overall admin role. Okay, so, yeah, so three, I like that. So you have the coach role, you have the student role, and then you have like, Coach Celeste, yeah?
+
+Unknown 10:05
+So she can go and sign and create coaches, then she can get coaches.
+
+Unknown 10:10
+Oh, yeah, signing and creating coaches is actually that's a much better idea, yeah.
+
+Unknown 10:17
+So we're gonna also have to make sure that it's like, this is all an interconnected web.
+
+Unknown 10:24
+So it's like, ID number 30197 can interact with ID 30198 and they're all monitored by coaches 3019 10, and Coach 30195 but these are like different coaches, so we're all gonna have to make sure it's like an interconnected thing, yeah, but you don't need to, like, they can use your their names. I mean, I mean, this is just an example,
+
+Unknown 10:55
+so you're gonna have to have a login.
+
+Unknown 10:58
+Yep, you want people to be to be able to log in with your Gmail?
+
+Unknown 11:05
+Yeah? I mean, I see it like that.
+
+Unknown 11:13
+Okay.
+
+Unknown 11:17
+I think that's good enough. I.

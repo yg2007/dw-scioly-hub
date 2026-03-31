@@ -29,3 +29,12 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Temp build artifacts
+*.timestamp-*.mjs
+lint_output*.txt
+test_output*.txt
+
+# Large binary files (keep in Google Drive, not git)
+*.pdf
+*.pptx

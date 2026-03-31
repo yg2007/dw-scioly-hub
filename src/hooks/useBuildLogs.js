@@ -30,7 +30,7 @@ export function useBuildLogs(userId, eventId) {
     );
 
   // Fetch build entries for all logs
-  const { data: entries, error: entriesError, refetch: refetchEntries } =
+  const { data: entries, error: entriesError, loading: entriesLoading, refetch: refetchEntries } =
     useQuery(
       `build-entries-${userId}-${eventId}`,
       async () => {
@@ -133,6 +133,7 @@ export function useBuildLogs(userId, eventId) {
     logs: logs || [],
     entries: entries || [],
     loading,
+    entriesLoading,
     error: logsError || entriesError,
     createLog,
     creatingLog,

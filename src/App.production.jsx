@@ -1,5 +1,6 @@
+/* eslint-disable */
 // ═══════════════════════════════════════════════════════════════
-//  DW SciOly Hub — Production App Shell
+//  DW SciOly Hub — Production App Shell (legacy — superseded by App.unified.jsx)
 //  Replaces mock data with Supabase hooks + real auth
 //
 //  MIGRATION GUIDE:

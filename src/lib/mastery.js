@@ -44,9 +44,9 @@ export function calculateMastery(answers, existingScore = null) {
         newScore * MASTERY_NEW_WEIGHT + existingScore * MASTERY_OLD_WEIGHT;
 
       // Detect trend based on threshold
-      if (finalScore > existingScore + MASTERY_TREND_THRESHOLD) {
+      if (finalScore >= existingScore + MASTERY_TREND_THRESHOLD) {
         trend = "up";
-      } else if (finalScore < existingScore - MASTERY_TREND_THRESHOLD) {
+      } else if (finalScore <= existingScore - MASTERY_TREND_THRESHOLD) {
         trend = "down";
       }
     }
@@ -106,9 +106,9 @@ export async function updateMasteryFromAttempt(userId, eventId, answers) {
         newScore * MASTERY_NEW_WEIGHT + existing.score * MASTERY_OLD_WEIGHT;
 
       // Detect trend based on threshold
-      if (finalScore > existing.score + MASTERY_TREND_THRESHOLD) {
+      if (finalScore >= existing.score + MASTERY_TREND_THRESHOLD) {
         trend = "up";
-      } else if (finalScore < existing.score - MASTERY_TREND_THRESHOLD) {
+      } else if (finalScore <= existing.score - MASTERY_TREND_THRESHOLD) {
         trend = "down";
       }
     }

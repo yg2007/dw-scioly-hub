@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════════════════════════
 //  Shared UI constants — extracted from prototype
 //  Import these in both prototype (App.jsx) and production mode
+//  (Constants and components co-located intentionally)
 // ═══════════════════════════════════════════════════════════════
+/* eslint-disable react-refresh/only-export-components */
 
 // DW Trojan Branding
 export const C = {

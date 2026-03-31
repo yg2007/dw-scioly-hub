@@ -59,7 +59,7 @@ describe('File Type Constants', () => {
   })
 
   it('should have valid MIME type formats', () => {
-    const mimeTypeRegex = /^[\w\-]+\/[\w\.\-]+$/
+    const mimeTypeRegex = /^[\w-]+\/[\w.-]+$/
     ALLOWED_PHOTO_TYPES.forEach((type) => {
       expect(type).toMatch(mimeTypeRegex)
     })

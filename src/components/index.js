@@ -16,6 +16,13 @@ export { default as CoachDashboard } from './CoachDashboard';
 export { default as SchedulePage } from './SchedulePage';
 export { default as BuildLogPage } from './BuildLogPage';
 export { default as TeamManagement } from './TeamManagement';
+export { default as PartnershipManagement } from './PartnershipManagement';
+export { default as StudentCapabilityMatrix } from './StudentCapabilityMatrix';
+export { default as QuestionBankPage } from './QuestionBankPage';
+export { default as MockTestPage } from './MockTestPage';
+export { default as TodaysFocusCard } from './TodaysFocusCard';
+
+export { default as ErrorBoundary } from './ErrorBoundary';
 
 // Shared components
 export { default as FormField } from './shared/FormField';

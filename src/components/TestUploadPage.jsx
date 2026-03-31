@@ -1,36 +1,128 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, LineChart, Line, CartesianGrid, Legend, Cell } from 'recharts';
 import { ArrowLeft, Upload } from 'lucide-react';
 import { C } from '../ui';
 import { EVENTS } from '../data/mockData';
+import { IS_PRODUCTION } from '../lib/featureFlags';
+import { useEvents } from '../hooks/useEvents';
+import { useCurrentEvent } from '../hooks/useCurrentEvent';
+import { useAppContext } from '../lib/AppContext';
+import { supabase } from '../lib/supabase';
 
-export default function TestUploadPage({ event, user, navigate }) {
+export default function TestUploadPage() {
+  const navigate = useNavigate();
+  const { currentUser: user } = useAppContext();
+  const { event } = useCurrentEvent();
+  const { events: prodEvents } = useEvents();
+  const events = IS_PRODUCTION && prodEvents && prodEvents.length > 0 ? prodEvents : EVENTS;
+  const fileInputRef = useRef(null);
+  const answerKeyInputRef = useRef(null);
+
   const [step, setStep] = useState("select"); // select | uploading | analyzing | results
   const [selectedFile, setSelectedFile] = useState(null);
+  const [realFile, setRealFile] = useState(null); // actual File object for production upload
+  const [selectedAnswerKey, setSelectedAnswerKey] = useState(null);
+  const [realAnswerKey, setRealAnswerKey] = useState(null);
   const [progress, setProgress] = useState(0);
   const [analysisResults, setAnalysisResults] = useState(null);
   const [selectedEventForUpload, setSelectedEventForUpload] = useState(event);
 
-  const simulateUpload = () => {
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+    if (file.size > 10 * 1024 * 1024) {
+      alert("File too large. Max 10 MB.");
+      return;
+    }
+    setRealFile(file);
+    setSelectedFile({ name: file.name, size: `${sizeMB} MB` });
+  };
+
+  const handleAnswerKeySelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+    if (file.size > 10 * 1024 * 1024) {
+      alert("File too large. Max 10 MB.");
+      return;
+    }
+    setRealAnswerKey(file);
+    setSelectedAnswerKey({ name: file.name, size: `${sizeMB} MB` });
+  };
+
+  const startUpload = async () => {
     setStep("uploading");
-    let p = 0;
-    const interval = setInterval(() => {
-      p += Math.random() * 15 + 5;
-      if (p >= 100) {
-        p = 100;
-        clearInterval(interval);
+    setProgress(0);
+
+    if (IS_PRODUCTION && realFile && user?.id) {
+      try {
+        // Real upload to Supabase storage
+        const filePath = `${user.id}/${Date.now()}_${realFile.name}`;
+        setProgress(20);
+
+        const { error: uploadErr } = await supabase.storage
+          .from("test-scans")
+          .upload(filePath, realFile);
+
+        if (uploadErr) {
+          throw new Error(`Storage upload failed: ${uploadErr.message}`);
+        }
+        setProgress(60);
+
+        // Upload answer key if provided
+        if (realAnswerKey) {
+          const answerKeyPath = `${user.id}/${Date.now()}_key_${realAnswerKey.name}`;
+          const { error: keyErr } = await supabase.storage.from("test-scans").upload(answerKeyPath, realAnswerKey);
+          if (keyErr) console.warn("Answer key upload failed:", keyErr.message);
+        }
+        setProgress(80);
+
+        // Save record in test_uploads table
+        const { error: dbErr } = await supabase.from("test_uploads").insert({
+          user_id: user.id,
+          event_id: selectedEventForUpload.id,
+          storage_path: filePath,
+          file_name: realFile.name,
+        });
+
+        if (dbErr) {
+          console.error("DB insert error:", dbErr);
+          // Don't block — file is already uploaded
+        }
+
+        setProgress(100);
         setTimeout(() => {
           setStep("analyzing");
           simulateAnalysis();
         }, 500);
+      } catch (err) {
+        console.error("Upload error:", err);
+        alert(err.message || "Upload failed. Check browser console for details.");
+        setStep("select");
       }
-      setProgress(Math.min(100, Math.round(p)));
-    }, 200);
+    } else {
+      // Prototype: simulate upload
+      let p = 0;
+      const interval = setInterval(() => {
+        p += Math.random() * 15 + 5;
+        if (p >= 100) {
+          p = 100;
+          clearInterval(interval);
+          setTimeout(() => {
+            setStep("analyzing");
+            simulateAnalysis();
+          }, 500);
+        }
+        setProgress(Math.min(100, Math.round(p)));
+      }, 200);
+    }
   };
 
   const simulateAnalysis = () => {
-    const ev = selectedEventForUpload || EVENTS[0];
-    const topics = ev.topics;
+    const ev = selectedEventForUpload || events[0];
+    const topics = ev?.topics || ["General"];
     let analyzed = 0;
     const interval = setInterval(() => {
       analyzed++;
@@ -73,7 +165,7 @@ export default function TestUploadPage({ event, user, navigate }) {
     return (
       <div style={{ maxWidth: 700, margin: "0 auto" }}>
         {event && (
-          <button onClick={() => navigate("events", event)}
+          <button onClick={() => navigate(`/events/${event?.id || ''}`)}
             style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none",
               color: C.gray400, fontSize: 13, cursor: "pointer", marginBottom: 16, fontFamily: "inherit" }}>
             <ArrowLeft size={14} /> Back to Event
@@ -88,20 +180,22 @@ export default function TestUploadPage({ event, user, navigate }) {
         <div style={{ background: C.white, borderRadius: 20, padding: 32, border: `1px solid ${C.gray200}` }}>
           {/* Event Selector */}
           <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Event</label>
-          <select value={selectedEventForUpload?.id || ""} onChange={e => setSelectedEventForUpload(EVENTS.find(ev => ev.id === Number(e.target.value)))}
+          <select value={selectedEventForUpload?.id || ""} onChange={e => setSelectedEventForUpload(events.find(ev => ev.id === Number(e.target.value)))}
             style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: `1px solid ${C.gray200}`,
               fontSize: 14, fontFamily: "inherit", marginBottom: 24, background: C.white, color: C.navy }}>
             <option value="">Select an event...</option>
-            {EVENTS.map(ev => (
+            {events.map(ev => (
               <option key={ev.id} value={ev.id}>{ev.icon} {ev.name}</option>
             ))}
           </select>
 
           {/* Upload Zone */}
+          <input type="file" ref={fileInputRef} onChange={handleFileSelect}
+            accept=".pdf,.jpg,.jpeg,.png,.docx" style={{ display: "none" }} />
           <div style={{ border: `2px dashed ${C.gray200}`, borderRadius: 16, padding: "40px 20px",
             textAlign: "center", marginBottom: 16, cursor: "pointer", transition: "border-color 0.2s",
             background: selectedFile ? "#F0FDF9" : "transparent" }}
-            onClick={() => setSelectedFile({ name: "practice_test_feb_2026.pdf", size: "2.4 MB" })}>
+            onClick={() => fileInputRef.current?.click()}>
             <Upload size={32} color={selectedFile ? C.teal : C.gray400} style={{ marginBottom: 12 }} />
             {selectedFile ? (
               <>
@@ -116,16 +210,28 @@ export default function TestUploadPage({ event, user, navigate }) {
             )}
           </div>
 
+          <input type="file" ref={answerKeyInputRef} onChange={handleAnswerKeySelect}
+            accept=".pdf,.jpg,.jpeg,.png,.docx,.txt,.csv" style={{ display: "none" }} />
           <div style={{ border: `2px dashed ${C.gray200}`, borderRadius: 16, padding: "30px 20px",
-            textAlign: "center", marginBottom: 24, cursor: "pointer" }}
-            onClick={() => {}}>
-            <p style={{ fontSize: 14, fontWeight: 600, color: C.navy }}>📋 Upload Answer Key (optional)</p>
-            <p style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>
-              For best analysis, include the answer key. You can also enter answers manually.
-            </p>
+            textAlign: "center", marginBottom: 24, cursor: "pointer",
+            background: selectedAnswerKey ? "#F0FDF9" : "transparent" }}
+            onClick={() => answerKeyInputRef.current?.click()}>
+            {selectedAnswerKey ? (
+              <>
+                <p style={{ fontSize: 14, fontWeight: 600, color: C.tealDark }}>📋 {selectedAnswerKey.name}</p>
+                <p style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>{selectedAnswerKey.size} — Click to change</p>
+              </>
+            ) : (
+              <>
+                <p style={{ fontSize: 14, fontWeight: 600, color: C.navy }}>📋 Upload Answer Key (optional)</p>
+                <p style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>
+                  For best analysis, include the answer key. You can also enter answers manually.
+                </p>
+              </>
+            )}
           </div>
 
-          <button onClick={simulateUpload} disabled={!selectedEventForUpload || !selectedFile}
+          <button onClick={startUpload} disabled={!selectedEventForUpload || !selectedFile}
             style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none",
               background: selectedEventForUpload && selectedFile ? C.teal : C.gray200,
               color: selectedEventForUpload && selectedFile ? C.white : C.gray400,
@@ -258,12 +364,12 @@ export default function TestUploadPage({ event, user, navigate }) {
         </div>
 
         <div style={{ display: "flex", gap: 12 }}>
-          <button onClick={() => navigate("studypath", r.event)}
+          <button onClick={() => navigate(`/events/${r.event?.id}/studypath`)}
             style={{ flex: 1, padding: "14px", borderRadius: 12, border: "none", background: C.teal,
               color: C.white, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
             🧠 Start AI Study Path
           </button>
-          <button onClick={() => { setStep("select"); setSelectedFile(null); setProgress(0); setAnalysisResults(null); }}
+          <button onClick={() => { setStep("select"); setSelectedFile(null); setRealFile(null); setSelectedAnswerKey(null); setRealAnswerKey(null); setProgress(0); setAnalysisResults(null); }}
             style={{ flex: 1, padding: "14px", borderRadius: 12, border: `2px solid ${C.gray200}`, background: C.white,
               color: C.navy, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
             Upload Another Test

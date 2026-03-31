@@ -3,7 +3,9 @@
   "installCommand": "npm install",
   "outputDirectory": "dist",
   "framework": "vite",
-  "nodeVersion": "22.x",
+  "redirects": [
+    { "source": "/", "destination": "/app", "permanent": false }
+  ],
   "rewrites": [
     { "source": "/app", "destination": "/app.html" },
     { "source": "/app/(.*)", "destination": "/app.html" }

@@ -1,13 +1,13 @@
 // Supabase Edge Function: Send Invite Email
 // Creates an invitation record and sends an email via Resend
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const APP_URL = Deno.env.get("APP_URL") || "https://dw-scioly-hub.vercel.app";
+const APP_URL = Deno.env.get("INVITE_REDIRECT_URL") || Deno.env.get("APP_URL") || "https://dw-scioly-hub.vercel.app";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -126,7 +126,7 @@ serve(async (req: Request) => {
           Authorization: `Bearer ${RESEND_API_KEY}`,
         },
         body: JSON.stringify({
-          from: "DW SciOly Hub <noreply@scioly.danielwright.org>",
+          from: Deno.env.get("RESEND_FROM_EMAIL") || "DW SciOly Hub <onboarding@resend.dev>",
           to: email,
           subject: `You're invited to DW SciOly Hub as ${roleLabel === "Event Coach" ? "an" : "a"} ${roleLabel}`,
           html: `

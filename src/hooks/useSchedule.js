@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect } from "react";
 import { useQuery, useMutation, invalidateCache } from "../lib/query";
 import { supabase } from "../lib/supabase";
 import { ANNOUNCEMENTS_PAGE_SIZE } from "../lib/constants";

@@ -18,3 +18,15 @@ export { useTestUploads } from "./useTestUploads";
 export { useSchedule, useAnnouncements } from "./useSchedule";
 export { useCoachDashboard, useAllStudents } from "./useCoachDashboard";
 export { useTeamManagement } from "./useTeamManagement";
+export { useCompetitions } from "./useCompetitions";
+export { useCurrentEvent } from "./useCurrentEvent";
+
+// Unified hooks — abstract away IS_PRODUCTION branching
+export {
+  useUnifiedEvents,
+  useUnifiedMastery,
+  useUnifiedQuizStats,
+  useUnifiedPartnerships,
+  useUnifiedQuizQuestions,
+  useUnifiedStudents,
+} from "./useUnifiedData";

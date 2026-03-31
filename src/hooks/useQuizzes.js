@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { useQuery, useMutation, invalidateCache } from "../lib/query";
 import { supabase } from "../lib/supabase";
 import { CACHE_TTL_QUIZ_QUESTIONS } from "../lib/constants";
@@ -157,6 +156,29 @@ export function useTopicMastery(userId, eventId) {
       return data;
     },
     { enabled: !!userId && !!eventId }
+  );
+
+  return { mastery: mastery || [], loading, error, refetch };
+}
+
+/**
+ * Fetch all topic mastery for a user across every event.
+ * Used by StudentDashboard to build the per-event mastery summary.
+ * @param {string} userId - User UUID
+ * @returns {{ mastery: Array, loading: boolean, error: any }}
+ */
+export function useUserMastery(userId) {
+  const { data: mastery, error, loading, refetch } = useQuery(
+    `user-mastery-all-${userId}`,
+    async () => {
+      const { data, error } = await supabase
+        .from("topic_mastery")
+        .select("event_id, topic, score")
+        .eq("user_id", userId);
+      if (error) throw error;
+      return data;
+    },
+    { staleTime: 60000, enabled: !!userId }
   );
 
   return { mastery: mastery || [], loading, error, refetch };
