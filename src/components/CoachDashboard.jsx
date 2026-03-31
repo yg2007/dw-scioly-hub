@@ -63,14 +63,30 @@ export default function CoachDashboard({ isAdmin }) {
     }).sort((a, b) => a.readiness - b.readiness);
   }, [prodStats, prodEvents, mockEvents]);
 
-  // ── Event students ─────────────────────────────────
+  // ── Event students (production: fetched directly from DB) ────
+  const [prodEventStudents, setProdEventStudents] = useState([]);
+  useEffect(() => {
+    if (!IS_PRODUCTION || !activeEventId) { setProdEventStudents([]); return; }
+    // Fetch students assigned to this event directly via user_events join
+    supabase
+      .from("user_events")
+      .select("user_id, users:user_id(id, full_name, initials, avatar_color, email, role)")
+      .eq("event_id", activeEventId)
+      .then(({ data, error }) => {
+        if (error) { console.error("Failed to fetch event students:", error); return; }
+        // Extract the nested user objects
+        const students = (data || [])
+          .map(row => row.users)
+          .filter(Boolean);
+        setProdEventStudents(students);
+      });
+  }, [activeEventId]);
+
   const eventStudents = useMemo(() => {
     if (!activeEventId) return [];
-    if (IS_PRODUCTION) {
-      return (prodStudents || []).filter(s => s?.events?.includes(activeEventId));
-    }
+    if (IS_PRODUCTION) return prodEventStudents;
     return (STUDENTS || []).filter(s => s?.events?.includes(activeEventId));
-  }, [activeEventId, prodStudents]);
+  }, [activeEventId, prodEventStudents]);
 
   // ── Production: per-student mastery for selected event ──────
   // Queries topic_mastery for the active event and averages per student.
