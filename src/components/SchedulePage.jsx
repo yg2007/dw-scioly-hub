@@ -149,16 +149,17 @@ export default function SchedulePage() {
         const dp = formatDateParts(comp?.date);
         return (
           <div key={comp?.id} style={{
-            display: "flex", alignItems: "center", gap: 16, padding: "16px 20px",
+            display: "flex", alignItems: "center", gap: 12, padding: "16px 20px",
             background: C.white, borderRadius: 12, border: `1px solid ${C.gray200}`, marginBottom: 10,
+            flexWrap: "wrap",
           }}>
             <div style={{ width: 52, textAlign: "center", flexShrink: 0 }}>
               <div style={{ fontSize: 11, color: C.gray400, fontWeight: 600, textTransform: "uppercase" }}>{dp?.month}</div>
               <div style={{ fontSize: 26, fontWeight: 800, color: C.navy, lineHeight: 1 }}>{dp?.day}</div>
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>{comp?.name}</div>
-              <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{comp?.name}</div>
+              <div style={{ display: "flex", gap: 12, marginTop: 4, flexWrap: "wrap" }}>
                 {comp?.location && (
                   <span style={{ fontSize: 12, color: C.gray400, display: "flex", alignItems: "center", gap: 4 }}>
                     <MapPin size={12} /> {comp?.location}
@@ -178,7 +179,7 @@ export default function SchedulePage() {
               textTransform: "uppercase", background: tc?.bg, color: tc?.text, flexShrink: 0,
             }}>{comp?.type}</span>
             {isStaff && (
-              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+              <div style={{ display: "flex", gap: 4, flexShrink: 0, flexWrap: "wrap" }}>
                 <button onClick={() => setSelectedComp(comp)} title="Manage Teams & Scores"
                   style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.teal}40`, background: "#E8F5E9",
                     cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.tealDark,
@@ -366,7 +367,7 @@ function CompetitionForm({ initial, onSave, onClose }) {
       display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50,
     }} onClick={onClose}>
       <div style={{
-        background: C.white, borderRadius: 20, width: 500, maxHeight: "85vh",
+        background: C.white, borderRadius: 20, width: 500, maxWidth: "calc(100vw - 24px)", maxHeight: "85vh",
         overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
       }} onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: "24px 28px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>

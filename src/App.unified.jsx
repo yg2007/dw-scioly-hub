@@ -160,7 +160,7 @@ function CommandPalette({ onClose }) {
       display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 120 }}
       onClick={onClose}>
       <div className="cmd-palette" style={{
-        width: 480, background: C.white, borderRadius: 16, overflow: "hidden",
+        width: 480, maxWidth: "calc(100vw - 32px)", background: C.white, borderRadius: 16, overflow: "hidden",
         boxShadow: "0 20px 60px rgba(0,0,0,0.25)", border: `1px solid ${C.gray200}`,
       }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: "16px 16px 12px", borderBottom: `1px solid ${C.gray100}` }}>

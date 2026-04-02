@@ -89,6 +89,12 @@ button:disabled {
   animation: spin 1s linear infinite;
 }
 
+/* ── Prevent horizontal overflow globally ─────────────────────── */
+html, body, #root {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 /* ── Mobile responsive sidebar ────────────────────────────────── */
 @media (max-width: 768px) {
   .app-shell { flex-direction: column !important; }
@@ -106,7 +112,52 @@ button:disabled {
     z-index: 199; display: block;
   }
   .hamburger-btn { display: flex !important; }
-  .main-content { padding: 16px 16px !important; }
+  .main-content { padding: 12px 12px !important; }
+
+  /* ── Command Palette: fit mobile ── */
+  .cmd-palette { width: calc(100vw - 32px) !important; max-width: 480px !important; }
+
+  /* ── Grids: collapse to single column ── */
+  .team-roster-grid,
+  .team-invite-grid,
+  .team-alumni-grid { grid-template-columns: 1fr !important; gap: 8px !important; }
+
+  /* ── Tables: horizontal scroll ── */
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* ── Form rows: stack vertically ── */
+  .form-row { flex-direction: column !important; }
+  .form-row > label { flex: unset !important; width: 100% !important; }
+
+  /* ── Competition cards: stack action buttons ── */
+  .comp-card-actions { flex-wrap: wrap; }
+
+  /* ── Quick Score: 2-col on mobile ── */
+  .quick-score-row {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 6px !important;
+  }
+  .quick-score-row > span:first-child {
+    grid-column: 1 / -1;
+  }
+
+  /* ── Partnership/Synergy grids ── */
+  .coverage-grid { grid-template-columns: 1fr 1fr !important; }
+
+  /* ── Modals: full-width on mobile ── */
+  .modal-content {
+    width: calc(100vw - 24px) !important;
+    max-width: 100% !important;
+    max-height: 90vh !important;
+  }
+}
+
+/* ── Small phones (< 400px) ──────────────────────────────────── */
+@media (max-width: 400px) {
+  .main-content { padding: 10px 8px !important; }
+  .quick-score-row {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 @media (min-width: 769px) {

@@ -339,7 +339,7 @@ export default function PartnerSynergyPage() {
 
             {/* Coverage Grid */}
             <div style={{ marginBottom: 16 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "140px 1fr 60px 60px", gap: 0, fontSize: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(80px, 140px) 1fr 50px 50px", gap: 0, fontSize: 12 }}>
                 <div style={{ padding: "8px 10px", fontWeight: 700, color: C.gray400 }}>Topic</div>
                 <div style={{ padding: "8px 10px", fontWeight: 700, color: C.gray400 }}>Coverage</div>
                 <div style={{ padding: "8px 10px", fontWeight: 700, color: C.gray400, textAlign: "center" }}>{selfLabel}</div>
@@ -361,7 +361,7 @@ export default function PartnerSynergyPage() {
                 const isNoData = !hasAnyData;
 
                 return (
-                  <div key={i} style={{ display: "grid", gridTemplateColumns: "140px 1fr 60px 60px",
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "minmax(80px, 140px) 1fr 50px 50px",
                     gap: 0, borderTop: `1px solid ${C.gray100}`, alignItems: "center" }}>
                     <div style={{ padding: "10px", fontSize: 13, fontWeight: 500 }}>{topicName}</div>
                     <div style={{ padding: "10px" }}>

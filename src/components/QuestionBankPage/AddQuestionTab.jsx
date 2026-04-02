@@ -134,8 +134,8 @@ export default function AddQuestionTab() {
 
       <div style={{ background: C.white, borderRadius: 14, padding: 24, border: `1px solid ${C.gray200}` }}>
         {/* Row 1: Event + Topic + Difficulty */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 140px", gap: 16, marginBottom: 20 }}>
-          <div>
+        <div className="form-row" style={{ display: "flex", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 140 }}>
             <label style={labelStyle}>
               Event <span style={{ color: C.coral }}>*</span>
             </label>
@@ -146,7 +146,7 @@ export default function AddQuestionTab() {
               ))}
             </select>
           </div>
-          <div>
+          <div style={{ flex: 1, minWidth: 140 }}>
             <label style={labelStyle}>
               Topic <span style={{ color: C.coral }}>*</span>
             </label>

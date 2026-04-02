@@ -395,7 +395,7 @@ export default function TeamManagement() {
       {/* ── ROSTER TAB ──────────────────────────────── */}
       {tab === "roster" && (
         <div style={{ background: C.white, borderRadius: 14, border: `1px solid ${C.gray200}`, overflow: "hidden" }}>
-          <div style={{
+          <div className="team-roster-grid" style={{
             display: "grid", gridTemplateColumns: "2fr 2fr 1fr 3fr 110px",
             padding: "12px 20px", background: C.offWhite, fontSize: 11, fontWeight: 700,
             color: C.gray400, textTransform: "uppercase", letterSpacing: 1,
@@ -414,7 +414,7 @@ export default function TeamManagement() {
             const userEvents = (events || []).filter((e) => (user?.eventIds || []).includes(e?.id));
             const isEditingEmail = editingEmailFor === user?.id;
             return (
-              <div key={user?.id || i} style={{
+              <div key={user?.id || i} className="team-roster-grid" style={{
                 display: "grid", gridTemplateColumns: "2fr 2fr 1fr 3fr 110px",
                 padding: "14px 20px", alignItems: "center",
                 borderTop: `1px solid ${C.gray100}`,
@@ -572,7 +572,7 @@ export default function TeamManagement() {
           </div>
 
           <div style={{ background: C.white, borderRadius: 14, border: `1px solid ${C.gray200}`, overflow: "hidden" }}>
-            <div style={{
+            <div className="team-alumni-grid" style={{
               display: "grid", gridTemplateColumns: "2fr 2fr 2fr 100px",
               padding: "12px 20px", background: C.offWhite, fontSize: 11, fontWeight: 700,
               color: C.gray400, textTransform: "uppercase", letterSpacing: 1,
@@ -589,7 +589,7 @@ export default function TeamManagement() {
             {alumniRoster.map((user, i) => {
               const userEvents = (events || []).filter((e) => (user?.eventIds || []).includes(e?.id));
               return (
-                <div key={user?.id || i} style={{
+                <div key={user?.id || i} className="team-alumni-grid" style={{
                   display: "grid", gridTemplateColumns: "2fr 2fr 2fr 100px",
                   padding: "14px 20px", alignItems: "center",
                   borderTop: `1px solid ${C.gray100}`,
@@ -650,7 +650,7 @@ export default function TeamManagement() {
       {/* ── PENDING INVITES TAB ─────────────────────── */}
       {tab === "pending" && (
         <div style={{ background: C.white, borderRadius: 14, border: `1px solid ${C.gray200}`, overflow: "hidden" }}>
-          <div style={{
+          <div className="team-invite-grid" style={{
             display: "grid", gridTemplateColumns: "2fr 2fr 1fr 2fr 120px",
             padding: "12px 20px", background: C.offWhite, fontSize: 11, fontWeight: 700,
             color: C.gray400, textTransform: "uppercase", letterSpacing: 1,
@@ -668,7 +668,7 @@ export default function TeamManagement() {
             const rc = ROLE_CONFIG[inv?.role] || ROLE_CONFIG.student;
             const invEvents = (events || []).filter((e) => (inv?.event_ids || []).includes(e?.id));
             return (
-              <div key={inv?.id} style={{
+              <div key={inv?.id} className="team-invite-grid" style={{
                 display: "grid", gridTemplateColumns: "2fr 2fr 1fr 2fr 120px",
                 padding: "14px 20px", alignItems: "center", borderTop: `1px solid ${C.gray100}`,
               }}>
