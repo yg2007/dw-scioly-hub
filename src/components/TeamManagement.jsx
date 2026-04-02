@@ -104,18 +104,20 @@ export default function TeamManagement() {
   // ── Add member directly (no email) ──────────────────
   const handleAddDirect = async ({ fullName, email, role, eventIds, _keepOpen }) => {
     try {
+      let result;
       if (IS_PRODUCTION) {
-        await team.addMemberDirectly({ fullName, email, role, eventIds });
-        // Silently reload the full roster from the server so the next add
-        // always starts with fresh server state (avoids stale-session issues
-        // where subsequent adds fail until logout/login).
+        result = await team.addMemberDirectly({ fullName, email, role, eventIds });
         team.silentRefresh();
       }
-      showToast(`${fullName} added to the team`);
+      if (result?._createdAsInvite) {
+        showToast(`${fullName} added as pending invite — they'll join the roster when they sign in with Google`);
+      } else {
+        showToast(`${fullName} added to the team`);
+      }
       if (!_keepOpen) setShowInviteForm(false);
     } catch (err) {
       showToast(err.message || "Failed to add member", "warn");
-      throw err; // re-throw so the modal can stop its spinner
+      throw err;
     }
   };
 

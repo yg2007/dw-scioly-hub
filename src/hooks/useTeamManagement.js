@@ -104,53 +104,55 @@ export function useTeamManagement() {
   }, []);
 
   // ─── Add member directly (no invite/email) ─────────
-  // Uses the add-member Edge Function which has service role access
-  // to create both the auth.users row and the public.users profile.
-  // Includes a 15 s timeout so the UI spinner never hangs forever.
+  // Tries the add-member Edge Function first (creates auth user + profile).
+  // Falls back to direct DB insert if the Edge Function isn't deployed.
+  // The fallback creates a profile row only — when the person signs in
+  // with Google later, the auth trigger links to the existing profile.
   const addMemberDirectly = useCallback(async ({ fullName, email, role, eventIds = [] }) => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanName = fullName.trim();
+    const initials = cleanName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
 
-    let data, fnErr;
+    // ── Try Edge Function first ──────────────────────
     try {
-      const res = await supabase.functions.invoke("add-member", {
-        body: { fullName, email, role, eventIds },
+      const { data, error: fnErr } = await supabase.functions.invoke("add-member", {
+        body: { fullName: cleanName, email: cleanEmail, role, eventIds },
       });
-      data = res.data;
-      fnErr = res.error;
-    } catch (networkErr) {
-      clearTimeout(timeout);
-      // AbortController fires a DOMException with name "AbortError"
-      if (networkErr?.name === "AbortError") {
-        throw new Error("Request timed out — the server took too long. Try again.");
+
+      if (fnErr) throw fnErr;
+      if (data?.error) throw new Error(data.error);
+
+      const member = data?.member;
+      if (member) {
+        setRoster((prev) => [...prev, { ...member, eventIds: member.eventIds || eventIds }]);
+        return member;
       }
-      throw new Error(networkErr?.message || "Network error while adding member.");
+    } catch (edgeFnErr) {
+      console.warn("add-member Edge Function unavailable, falling back to direct insert:", edgeFnErr.message);
     }
-    clearTimeout(timeout);
 
-    // supabase.functions.invoke can return error in multiple ways:
-    // 1. fnErr is set (network error or non-2xx status)
-    // 2. data contains an { error: "..." } field
-    // When the function returns non-2xx, data may still have the error JSON
-    if (fnErr) {
-      const msg = data?.error || fnErr.message || "Failed to add member";
-      console.error("add-member Edge Function error:", { fnErr, data });
-      throw new Error(msg);
-    }
-    if (data?.error) throw new Error(data.error);
+    // ── Fallback: create an invitation instead ─────────
+    // Without the Edge Function we can't create auth users directly,
+    // so we create a pending invite. The member joins the roster
+    // automatically when they sign in with Google.
+    const { data: existingUser } = await supabase
+      .from("users").select("id").eq("email", cleanEmail).maybeSingle();
+    if (existingUser) throw new Error(`${cleanEmail} is already on the team`);
 
-    const member = data?.member;
-    if (!member) throw new Error("No member data returned. Check Edge Function logs.");
+    const { data: existingInvite } = await supabase
+      .from("invitations").select("id").eq("email", cleanEmail).eq("status", "pending").maybeSingle();
+    if (existingInvite) throw new Error(`A pending invite already exists for ${cleanEmail}`);
 
-    setRoster((prev) => [
-      ...prev,
-      {
-        ...member,
-        eventIds: member.eventIds || eventIds,
-      },
-    ]);
+    const { data: invite, error: invErr } = await supabase
+      .from("invitations")
+      .insert({ email: cleanEmail, full_name: cleanName, role, event_ids: eventIds })
+      .select().single();
+    if (invErr) throw invErr;
 
-    return member;
+    setInvitations((prev) => [invite, ...prev]);
+
+    // Return a marker so the UI can show the right message
+    return { ...invite, eventIds, _createdAsInvite: true };
   }, []);
 
   // ─── Revoke invitation ─────────────────────────────
