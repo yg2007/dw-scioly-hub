@@ -4,7 +4,7 @@ import { ArrowLeft, CheckCircle, Clock, Flag, XCircle } from 'lucide-react';
 import Breadcrumbs from './shared/Breadcrumbs';
 import { C } from '../ui';
 import { IS_PRODUCTION } from '../lib/featureFlags';
-import { supabase } from '../lib/supabase';
+import { supabase, resilientQuery } from '../lib/supabase';
 import { updateMasteryFromAttempt } from '../lib/mastery';
 import { updateSM2Schedule } from '../lib/sm2';
 import { useAppContext } from '../lib/AppContext';

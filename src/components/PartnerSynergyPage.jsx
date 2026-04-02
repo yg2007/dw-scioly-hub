@@ -4,7 +4,7 @@ import { SkeletonDashboard } from './shared/Skeleton';
 import { C } from '../ui';
 import { EVENTS, PARTNERSHIPS, STUDENTS, generateMastery } from '../data/mockData';
 import { IS_PRODUCTION } from '../lib/featureFlags';
-import { supabase } from '../lib/supabase';
+import { supabase, resilientQuery } from '../lib/supabase';
 import { useAppContext } from '../lib/AppContext';
 
 // ═══════════════════════════════════════════════════════════════
@@ -19,7 +19,8 @@ import { useAppContext } from '../lib/AppContext';
 // ═══════════════════════════════════════════════════════════════
 
 export default function PartnerSynergyPage() {
-  const { currentUser: user } = useAppContext();
+  const { currentUser: user, userRole } = useAppContext();
+  const isStaff = userRole === 'coach' || userRole === 'admin';
 
   // ── Production state ─────────────────────────────────────────
   const [prodPartnerships, setProdPartnerships] = useState([]);
@@ -28,6 +29,9 @@ export default function PartnerSynergyPage() {
   const [prodEventData, setProdEventData] = useState({});    // eventId → { name, icon, team_size, topics: [] }
   const [prodMyMastery, setProdMyMastery] = useState([]);     // topic_mastery rows for current user
   const [prodPartnerMastery, setProdPartnerMastery] = useState([]); // topic_mastery rows for all partners
+  // Coach preview: which student's perspective to view
+  const [previewStudentId, setPreviewStudentId] = useState(null);
+  const [allStudents, setAllStudents] = useState([]);
 
   // ── Fetch everything from Supabase ───────────────────────────
   useEffect(() => {
@@ -37,28 +41,69 @@ export default function PartnerSynergyPage() {
 
     (async () => {
       try {
-        // 1. Fetch partnerships where this user is partner_a or partner_b
-        const { data: rawPartnerships, error: pErr } = await supabase
-          .from("partnerships")
-          .select("id, event_id, partner_a, partner_b")
-          .or(`partner_a.eq.${user.id},partner_b.eq.${user.id}`);
+        let rawPartnerships;
 
-        if (pErr) throw pErr;
+        if (isStaff) {
+          // Coaches/admins: fetch ALL finalized partnerships to preview student view
+          const { data, error: pErr } = await resilientQuery(() =>
+            supabase
+              .from("partnerships")
+              .select("id, event_id, partner_a, partner_b, status")
+              .eq("status", "finalized")
+          );
+          if (pErr) throw pErr;
+          rawPartnerships = data || [];
+
+          // Also fetch all students for the preview picker
+          const { data: studentsData } = await resilientQuery(() =>
+            supabase
+              .from("users")
+              .select("id, full_name, avatar_color, initials, role")
+              .eq("role", "student")
+              .or("is_alumni.eq.false,is_alumni.is.null")
+              .order("full_name")
+          );
+          setAllStudents(studentsData || []);
+
+          // Auto-select the first student who has partnerships
+          if (studentsData && studentsData.length > 0 && !previewStudentId) {
+            const partnerIds = new Set();
+            (data || []).forEach(p => { partnerIds.add(p.partner_a); partnerIds.add(p.partner_b); });
+            const firstPaired = studentsData.find(s => partnerIds.has(s.id));
+            if (firstPaired) setPreviewStudentId(firstPaired.id);
+          }
+        } else {
+          // Students: fetch only their own partnerships (RLS restricts to finalized)
+          const { data, error: pErr } = await resilientQuery(() =>
+            supabase
+              .from("partnerships")
+              .select("id, event_id, partner_a, partner_b")
+              .or(`partner_a.eq.${user.id},partner_b.eq.${user.id}`)
+          );
+          if (pErr) throw pErr;
+          rawPartnerships = data || [];
+        }
+
         if (!rawPartnerships || rawPartnerships.length === 0) {
           setProdPartnerships([]);
           setProdLoading(false);
           return;
         }
 
+        // The "perspective user" — the student whose partnerships we're viewing
+        const viewAsId = isStaff ? previewStudentId : user.id;
+
         // Deduplicate by event_id — if 3-person teams created multiple rows,
         // group them by event so we show one card per event
         const byEvent = {};
         for (const p of rawPartnerships) {
+          // For staff preview: only show partnerships involving the selected student
+          if (viewAsId && p.partner_a !== viewAsId && p.partner_b !== viewAsId) continue;
           const eid = p.event_id;
           if (!byEvent[eid]) byEvent[eid] = { dbId: p.id, eventId: eid, partnerIds: new Set() };
           // Add the OTHER person as a partner
-          if (p.partner_a !== user.id) byEvent[eid].partnerIds.add(p.partner_a);
-          if (p.partner_b !== user.id) byEvent[eid].partnerIds.add(p.partner_b);
+          if (p.partner_a !== viewAsId) byEvent[eid].partnerIds.add(p.partner_a);
+          if (p.partner_b !== viewAsId) byEvent[eid].partnerIds.add(p.partner_b);
         }
 
         const partnerships = Object.values(byEvent).map(p => ({
@@ -71,16 +116,32 @@ export default function PartnerSynergyPage() {
         const allPartnerIds = [...new Set(partnerships.flatMap(p => p.partnerIds))];
         const allEventIds = [...new Set(partnerships.map(p => p.eventId))];
 
+        if (allEventIds.length === 0) {
+          setProdLoading(false);
+          return;
+        }
+
         // 3. Fetch partner user info, event details, event topics, and mastery — all in parallel
+        const effectiveUserId = viewAsId || user.id;
         const [usersRes, eventsRes, topicsRes, myMasteryRes, partnerMasteryRes] = await Promise.all([
           allPartnerIds.length > 0
-            ? supabase.from("users").select("id, full_name, avatar_color, initials").in("id", allPartnerIds)
+            ? resilientQuery(() =>
+                supabase.from("users").select("id, full_name, avatar_color, initials").in("id", allPartnerIds)
+              )
             : { data: [] },
-          supabase.from("events").select("id, name, icon, team_size, type").in("id", allEventIds),
-          supabase.from("event_topics").select("event_id, name, sort_order").in("event_id", allEventIds).order("sort_order"),
-          supabase.from("topic_mastery").select("event_id, topic, score").eq("user_id", user.id).in("event_id", allEventIds),
+          resilientQuery(() =>
+            supabase.from("events").select("id, name, icon, team_size, type").in("id", allEventIds)
+          ),
+          resilientQuery(() =>
+            supabase.from("event_topics").select("event_id, name, sort_order").in("event_id", allEventIds).order("sort_order")
+          ),
+          resilientQuery(() =>
+            supabase.from("topic_mastery").select("event_id, topic, score").eq("user_id", effectiveUserId).in("event_id", allEventIds)
+          ),
           allPartnerIds.length > 0
-            ? supabase.from("topic_mastery").select("user_id, event_id, topic, score").in("user_id", allPartnerIds).in("event_id", allEventIds)
+            ? resilientQuery(() =>
+                supabase.from("topic_mastery").select("user_id, event_id, topic, score").in("user_id", allPartnerIds).in("event_id", allEventIds)
+              )
             : { data: [] },
         ]);
 
@@ -111,7 +172,7 @@ export default function PartnerSynergyPage() {
         setProdLoading(false);
       }
     })();
-  }, [user?.id]);
+  }, [user?.id, isStaff, previewStudentId]);
 
   // ── Build mastery lookup maps ────────────────────────────────
   const myMasteryMap = useMemo(() => {
@@ -145,13 +206,24 @@ export default function PartnerSynergyPage() {
     return <SkeletonDashboard stats={2} rows={6} style={{ padding: "4px 0" }} />;
   }
 
+  // The student whose perspective we're viewing
+  const viewAsStudent = isStaff
+    ? allStudents.find(s => s.id === previewStudentId) || null
+    : user;
+
   // ── Empty state ──────────────────────────────────────────────
   if (userPartnerships.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: 60 }}>
         <Users size={48} color={C.gray200} style={{ marginBottom: 16 }} />
-        <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>No Partnerships Yet</h2>
-        <p style={{ color: C.gray400, fontSize: 14 }}>Your coach will assign event partners soon.</p>
+        <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>
+          {isStaff ? "No Finalized Partnerships" : "No Partnerships Yet"}
+        </h2>
+        <p style={{ color: C.gray400, fontSize: 14 }}>
+          {isStaff
+            ? "Finalize partnerships from the Pairings page to see the student view here."
+            : "Your coach will assign event partners soon."}
+        </p>
       </div>
     );
   }
@@ -160,9 +232,37 @@ export default function PartnerSynergyPage() {
   return (
     <div>
       <h2 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>👥 Partner Synergy</h2>
-      <p style={{ color: C.gray600, fontSize: 14, marginBottom: 28 }}>
-        See how you and your partners complement each other across event topics.
+      <p style={{ color: C.gray600, fontSize: 14, marginBottom: isStaff ? 16 : 28 }}>
+        {isStaff
+          ? "Preview the student synergy view. Select a student to see their perspective."
+          : "See how you and your partners complement each other across event topics."}
       </p>
+
+      {/* Coach/Admin: Student preview picker */}
+      {isStaff && allStudents.length > 0 && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, marginBottom: 24,
+          padding: "12px 16px", background: "#EDE9FE", borderRadius: 10,
+          border: "1px solid #C4B5FD",
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#5B21B6" }}>Viewing as:</span>
+          <select
+            value={previewStudentId || ""}
+            onChange={(e) => setPreviewStudentId(e.target.value)}
+            style={{
+              padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.gray200}`,
+              fontSize: 13, fontFamily: "inherit", background: C.white, cursor: "pointer",
+            }}
+          >
+            {allStudents.filter(s => {
+              // Only show students who have at least one finalized partnership
+              return true; // show all — the view will show empty if they have no partnerships
+            }).map(s => (
+              <option key={s.id} value={s.id}>{s.full_name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {userPartnerships.map(p => {
         let partnerIds, partners, ev, topics, myMastery, theirMasteryArr;
@@ -200,6 +300,11 @@ export default function PartnerSynergyPage() {
         const partner = partners[0];
         const hasAnyData = myMastery.some(m => m.score > 0) || theirMasteryArr.some(m => m.score > 0);
 
+        // Use viewAsStudent for display (coach preview shows student name, student sees "You")
+        const selfUser = viewAsStudent || user;
+        const selfLabel = isStaff ? (selfUser.full_name || "Student").split(" ")[0] : "You";
+        const selfColor = selfUser.avatar_color || selfUser.color || C.teal;
+
         return (
           <div key={p.eventId} style={{ background: C.white, borderRadius: 16, padding: 28,
             border: `1px solid ${C.gray200}`, marginBottom: 20 }}>
@@ -214,12 +319,12 @@ export default function PartnerSynergyPage() {
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px",
-                  background: `${(user.color || user.avatar_color || C.teal)}15`, borderRadius: 8 }}>
-                  <div style={{ width: 20, height: 20, borderRadius: "50%", background: (user.color || user.avatar_color || C.teal),
+                  background: `${selfColor}15`, borderRadius: 8 }}>
+                  <div style={{ width: 20, height: 20, borderRadius: "50%", background: selfColor,
                     fontSize: 9, fontWeight: 700, color: C.white, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    {user.initials}
+                    {selfUser.initials}
                   </div>
-                  <span style={{ fontSize: 12, fontWeight: 600 }}>You</span>
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>{selfLabel}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px",
                   background: `${(partner.avatar_color || partner.color || C.teal)}15`, borderRadius: 8 }}>
@@ -237,7 +342,7 @@ export default function PartnerSynergyPage() {
               <div style={{ display: "grid", gridTemplateColumns: "140px 1fr 60px 60px", gap: 0, fontSize: 12 }}>
                 <div style={{ padding: "8px 10px", fontWeight: 700, color: C.gray400 }}>Topic</div>
                 <div style={{ padding: "8px 10px", fontWeight: 700, color: C.gray400 }}>Coverage</div>
-                <div style={{ padding: "8px 10px", fontWeight: 700, color: C.gray400, textAlign: "center" }}>You</div>
+                <div style={{ padding: "8px 10px", fontWeight: 700, color: C.gray400, textAlign: "center" }}>{selfLabel}</div>
                 <div style={{ padding: "8px 10px", fontWeight: 700, color: C.gray400, textAlign: "center" }}>
                   {(partner.full_name || partner.name || "Partner").split(" ")[0]}
                 </div>
@@ -265,7 +370,7 @@ export default function PartnerSynergyPage() {
                       ) : (
                         <div style={{ height: 12, background: C.gray100, borderRadius: 100, position: "relative", overflow: "hidden" }}>
                           <div style={{ position: "absolute", height: "100%", width: `${myScore}%`,
-                            background: `${(user.color || user.avatar_color || C.teal)}55`, borderRadius: 100 }} />
+                            background: `${selfColor}55`, borderRadius: 100 }} />
                           <div style={{ position: "absolute", height: "100%", width: `${theirScore}%`,
                             background: `${(partner.avatar_color || partner.color || C.teal)}55`, borderRadius: 100 }} />
                         </div>
@@ -303,7 +408,7 @@ export default function PartnerSynergyPage() {
               <span style={{ color: C.gray600 }}>
                 {hasAnyData ? (
                   <>
-                    {(user?.name || user?.full_name || "You").split(" ")[0]}, focus on{" "}
+                    {(selfUser?.name || selfUser?.full_name || "You").split(" ")[0]}, focus on{" "}
                     {[...myMastery].sort((a, b) => a.score - b.score)[0]?.topic || "your weakest area"}.{" "}
                     {(partner.full_name || partner.name || "Partner").split(" ")[0]} should prioritize{" "}
                     {[...theirMasteryArr].sort((a, b) => a.score - b.score)[0]?.topic || "their weakest area"}.

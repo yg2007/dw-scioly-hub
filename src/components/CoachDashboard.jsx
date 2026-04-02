@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PropTypes from 'prop-types';
 import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
@@ -11,6 +11,7 @@ import { useCoachDashboard, useTeamProgressTrend } from '../hooks/useCoachDashbo
 import { useTeamManagement } from '../hooks/useTeamManagement';
 import { useCompetitions } from '../hooks/useCompetitions';
 import { supabase } from '../lib/supabase';
+import { useQuery } from '../lib/query';
 
 export default function CoachDashboard({ isAdmin }) {
   const navigate = useNavigate();
@@ -40,13 +41,18 @@ export default function CoachDashboard({ isAdmin }) {
     if (IS_PRODUCTION) {
       return prodStats.map(stat => {
         const ev = prodEvents.find(e => e.id === stat.event_id);
+        // Compute student count from the already-filtered prodStudents (role=student, non-alumni)
+        // rather than trusting the DB view which may still include coaches
+        const studentCount = prodStudents.filter(s =>
+          (s.events || []).includes(stat.event_id)
+        ).length;
         return {
           id: stat.event_id,
           name: stat.event_name || ev?.name || `Event ${stat.event_id}`,
           icon: ev?.icon || '📋',
           type: stat.event_type || ev?.type,
           readiness: Math.round(stat.avg_quiz_score || 0),
-          studentCount: stat.assigned_students || 0,
+          studentCount,
           quizAttempts: stat.total_quiz_attempts || 0,
           buildLogs: stat.total_build_logs || 0,
         };
@@ -61,60 +67,63 @@ export default function CoachDashboard({ isAdmin }) {
       }, 0) / evStudents.length) : 0;
       return { ...ev, readiness: avg, studentCount: evStudents.length };
     }).sort((a, b) => a.readiness - b.readiness);
-  }, [prodStats, prodEvents, mockEvents]);
+  }, [prodStats, prodEvents, prodStudents, mockEvents]);
 
-  // ── Event students (production: fetched directly from DB) ────
-  const [prodEventStudents, setProdEventStudents] = useState([]);
-  useEffect(() => {
-    if (!IS_PRODUCTION || !activeEventId) { setProdEventStudents([]); return; }
-    // Fetch students assigned to this event directly via user_events join
-    supabase
+  // ── Event students (production: cached per event) ────────────
+  const fetchEventStudents = useCallback(async () => {
+    const { data, error } = await supabase
       .from("user_events")
-      .select("user_id, users:user_id(id, full_name, initials, avatar_color, email, role)")
-      .eq("event_id", activeEventId)
-      .then(({ data, error }) => {
-        if (error) { console.error("Failed to fetch event students:", error); return; }
-        // Extract the nested user objects
-        const students = (data || [])
-          .map(row => row.users)
-          .filter(Boolean);
-        setProdEventStudents(students);
-      });
+      .select("user_id, users:user_id(id, full_name, initials, avatar_color, email, role, is_alumni)")
+      .eq("event_id", activeEventId);
+    if (error) throw error;
+    return (data || [])
+      .map(row => row.users)
+      .filter(u => u && u.role === "student" && !u.is_alumni);
   }, [activeEventId]);
+
+  const { data: prodEventStudents, loading: eventStudentsLoading } = useQuery(
+    `event-students-${activeEventId}`,
+    fetchEventStudents,
+    { staleTime: 5 * 60 * 1000, enabled: IS_PRODUCTION && !!activeEventId }
+  );
 
   const eventStudents = useMemo(() => {
     if (!activeEventId) return [];
-    if (IS_PRODUCTION) return prodEventStudents;
+    if (IS_PRODUCTION) return prodEventStudents || [];
     return (STUDENTS || []).filter(s => s?.events?.includes(activeEventId));
   }, [activeEventId, prodEventStudents]);
 
-  // ── Production: per-student mastery for selected event ──────
-  // Queries topic_mastery for the active event and averages per student.
-  const [masteryByStudent, setMasteryByStudent] = useState({}); // { userId: avgScore }
-  useEffect(() => {
-    if (!IS_PRODUCTION || !activeEventId) { setMasteryByStudent({}); return; }
-    supabase
+  // ── Production: per-student mastery for selected event (cached) ──
+  const fetchEventMastery = useCallback(async () => {
+    const { data } = await supabase
       .from("topic_mastery")
       .select("user_id, score")
-      .eq("event_id", activeEventId)
-      .then(({ data }) => {
-        if (!data) return;
-        const byStudent = {};
-        for (const row of data) {
-          if (!byStudent[row.user_id]) byStudent[row.user_id] = { sum: 0, count: 0 };
-          byStudent[row.user_id].sum += Number(row.score) || 0;
-          byStudent[row.user_id].count += 1;
-        }
-        const averaged = {};
-        for (const [uid, { sum, count }] of Object.entries(byStudent)) {
-          averaged[uid] = Math.round(sum / count);
-        }
-        setMasteryByStudent(averaged);
-      });
+      .eq("event_id", activeEventId);
+    if (!data) return {};
+    const byStudent = {};
+    for (const row of data) {
+      if (!byStudent[row.user_id]) byStudent[row.user_id] = { sum: 0, count: 0 };
+      byStudent[row.user_id].sum += Number(row.score) || 0;
+      byStudent[row.user_id].count += 1;
+    }
+    const averaged = {};
+    for (const [uid, { sum, count }] of Object.entries(byStudent)) {
+      averaged[uid] = Math.round(sum / count);
+    }
+    return averaged;
   }, [activeEventId]);
 
+  const { data: masteryByStudentData } = useQuery(
+    `event-mastery-${activeEventId}`,
+    fetchEventMastery,
+    { staleTime: 5 * 60 * 1000, enabled: IS_PRODUCTION && !!activeEventId }
+  );
+  const masteryByStudent = masteryByStudentData || {};
+
   // ── Summary stats ──────────────────────────────────
-  const totalMembers = IS_PRODUCTION ? (team.roster || []).length : STUDENTS.length;
+  const totalMembers = IS_PRODUCTION
+    ? (team.roster || []).filter(u => u.role === "student" && !u.is_alumni).length
+    : STUDENTS.length;
 
   const summaryStats = useMemo(() => {
     const avgReadiness = teamReadiness.length

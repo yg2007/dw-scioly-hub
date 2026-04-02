@@ -15,6 +15,7 @@ export default function Sidebar({ open, onClose }) {
       { path: "/upload", label: "Upload Test", icon: <Upload size={18} /> },
       { path: "/studypath", label: "Study Path", icon: <Brain size={18} /> },
       { path: "/buildlog", label: "Build Log", icon: <Wrench size={18} /> },
+      { path: "/partners", label: "Synergy", icon: <Users size={18} /> },
     ] : []),
     { path: "/schedule", label: "Schedule", icon: <Calendar size={18} /> },
     { path: "/suggestions", label: "Suggestions", icon: <MessageSquarePlus size={18} /> },

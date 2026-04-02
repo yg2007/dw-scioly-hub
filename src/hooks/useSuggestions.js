@@ -17,10 +17,10 @@ export function useSuggestions(currentUserId) {
     setLoading(true);
     setError(null);
     try {
-      // Fetch suggestions with author name
+      // Fetch suggestions with author name (use explicit FK constraint to avoid ambiguity)
       const { data: sugData, error: sugErr } = await supabase
         .from("suggestions")
-        .select("*, author:users!author_id(full_name, avatar_color, role)")
+        .select("*, author:users!suggestions_author_id_public_users_fk(full_name, avatar_color, role)")
         .order("vote_count", { ascending: false });
       if (sugErr) throw sugErr;
 
@@ -47,14 +47,24 @@ export function useSuggestions(currentUserId) {
   // ── Create ──
   const createSuggestion = useCallback(
     async ({ title, description }) => {
-      const { data, error: err } = await supabase
+      // Step 1: Insert the suggestion
+      const { data: inserted, error: insertErr } = await supabase
         .from("suggestions")
         .insert({ author_id: currentUserId, title, description: description || "" })
-        .select("*, author:users!author_id(full_name, avatar_color, role)")
+        .select("*")
         .single();
-      if (err) throw err;
-      setSuggestions((prev) => [data, ...prev]);
-      return data;
+      if (insertErr) throw insertErr;
+
+      // Step 2: Fetch it back with the author join (separate query avoids FK ambiguity)
+      const { data: full, error: fetchErr } = await supabase
+        .from("suggestions")
+        .select("*, author:users!suggestions_author_id_public_users_fk(full_name, avatar_color, role)")
+        .eq("id", inserted.id)
+        .single();
+
+      const result = fetchErr ? { ...inserted, author: null } : full;
+      setSuggestions((prev) => [result, ...prev]);
+      return result;
     },
     [currentUserId]
   );

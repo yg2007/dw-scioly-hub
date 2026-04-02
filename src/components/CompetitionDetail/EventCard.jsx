@@ -131,6 +131,7 @@ export default function EventCard({
 
             {/* TEAMS SIDE BY SIDE */}
             <div
+              className="team-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr",
@@ -295,6 +296,7 @@ export default function EventCard({
             </h3>
 
             <div
+              className="score-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr",

@@ -14,7 +14,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, CheckCircle, Clock, Send, XCircle } from "lucide-react";
 import { C } from "../ui";
 import { IS_PRODUCTION } from "../lib/featureFlags";
-import { supabase } from "../lib/supabase";
+import { supabase, resilientQuery } from "../lib/supabase";
 import { updateMasteryFromAttempt } from "../lib/mastery";
 import { updateSM2Schedule } from "../lib/sm2";
 import { useAppContext } from "../lib/AppContext";
@@ -34,12 +34,14 @@ function formatTime(seconds) {
 async function loadMockTestQuestions(eventId) {
   if (!IS_PRODUCTION) return null; // prototype uses mock bank
 
-  const { data, error } = await supabase
-    .from("quiz_questions")
-    .select("*")
-    .eq("event_id", eventId)
-    .in("question_type", QUIZ_TYPES)
-    .order("id");
+  const { data, error } = await resilientQuery(() =>
+    supabase
+      .from("quiz_questions")
+      .select("*")
+      .eq("event_id", eventId)
+      .in("question_type", QUIZ_TYPES)
+      .order("id")
+  );
 
   if (error || !data || data.length === 0) return null;
 

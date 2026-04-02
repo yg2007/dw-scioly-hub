@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, resilientQuery } from "../lib/supabase";
 
 /**
  * Hook for head coach team management:
@@ -21,20 +21,15 @@ export function useTeamManagement() {
     setError(null);
     try {
       const [usersRes, invitesRes, eventsRes] = await Promise.all([
-        supabase
-          .from("users")
-          .select("*, user_events(event_id)")
-          .order("role")
-          .order("full_name"),
-        supabase
-          .from("invitations")
-          .select("*")
-          .eq("status", "pending")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("events")
-          .select("id, name, type, team_size, icon")
-          .order("id"),
+        resilientQuery(() =>
+          supabase.from("users").select("*, user_events(event_id)").order("role").order("full_name")
+        ),
+        resilientQuery(() =>
+          supabase.from("invitations").select("*").eq("status", "pending").order("created_at", { ascending: false })
+        ),
+        resilientQuery(() =>
+          supabase.from("events").select("id, name, type, team_size, icon").order("id")
+        ),
       ]);
 
       if (usersRes.error) throw usersRes.error;
@@ -292,16 +287,12 @@ export function useTeamManagement() {
   const silentRefresh = useCallback(async () => {
     try {
       const [usersRes, invitesRes] = await Promise.all([
-        supabase
-          .from("users")
-          .select("*, user_events(event_id)")
-          .order("role")
-          .order("full_name"),
-        supabase
-          .from("invitations")
-          .select("*")
-          .eq("status", "pending")
-          .order("created_at", { ascending: false }),
+        resilientQuery(() =>
+          supabase.from("users").select("*, user_events(event_id)").order("role").order("full_name")
+        ),
+        resilientQuery(() =>
+          supabase.from("invitations").select("*").eq("status", "pending").order("created_at", { ascending: false })
+        ),
       ]);
       if (!usersRes.error) {
         setRoster(

@@ -6,9 +6,10 @@
 //  Each hook returns the same shape regardless of mode.
 // ═══════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { IS_PRODUCTION } from "../lib/featureFlags";
 import { supabase } from "../lib/supabase";
+import { useQuery } from "../lib/query";
 import {
   EVENTS,
   STUDENTS,
@@ -85,84 +86,85 @@ export function useUnifiedMastery(userId, eventId) {
 
 // ─── useUnifiedQuizStats ─────────────────────────────────────
 // Returns quiz count and study streak for dashboard stats.
+// Single cached query replaces previous dual uncached queries.
 export function useUnifiedQuizStats(userId) {
-  const [quizCount, setQuizCount] = useState(IS_PRODUCTION ? null : 37);
-  const [streakDays, setStreakDays] = useState(IS_PRODUCTION ? null : 12);
+  const fetchQuizStats = useCallback(async () => {
+    // Single query: fetch recent completed attempts (count + dates for streak)
+    const [countRes, streakRes] = await Promise.all([
+      supabase
+        .from("quiz_attempts")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId),
+      supabase
+        .from("quiz_attempts")
+        .select("completed_at")
+        .eq("user_id", userId)
+        .not("completed_at", "is", null)
+        .order("completed_at", { ascending: false })
+        .limit(60),
+    ]);
 
-  useEffect(() => {
-    if (!IS_PRODUCTION || !userId) return;
+    const quizCount = countRes.count || 0;
 
-    supabase
-      .from("quiz_attempts")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .then(({ count }) => {
-        setQuizCount(count || 0);
-      });
+    let streakDays = 0;
+    const data = streakRes.data;
+    if (data && data.length > 0) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const dates = new Set(
+        data.map((d) => {
+          const dt = new Date(d.completed_at);
+          dt.setHours(0, 0, 0, 0);
+          return dt.toISOString().split("T")[0];
+        })
+      );
+      let checkDate = new Date(today);
+      while (dates.has(checkDate.toISOString().split("T")[0])) {
+        streakDays++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+    }
 
-    supabase
-      .from("quiz_attempts")
-      .select("completed_at")
-      .eq("user_id", userId)
-      .not("completed_at", "is", null)
-      .order("completed_at", { ascending: false })
-      .limit(60)
-      .then(({ data }) => {
-        if (!data || data.length === 0) {
-          setStreakDays(0);
-          return;
-        }
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const dates = new Set(
-          data.map((d) => {
-            const dt = new Date(d.completed_at);
-            dt.setHours(0, 0, 0, 0);
-            return dt.toISOString().split("T")[0];
-          })
-        );
-        let streak = 0;
-        let checkDate = new Date(today);
-        while (dates.has(checkDate.toISOString().split("T")[0])) {
-          streak++;
-          checkDate.setDate(checkDate.getDate() - 1);
-        }
-        setStreakDays(streak);
-      });
+    return { quizCount, streakDays };
   }, [userId]);
 
-  return { quizCount, streakDays };
+  const { data } = useQuery(
+    `quiz-stats-${userId}`,
+    fetchQuizStats,
+    { staleTime: 60 * 1000, enabled: IS_PRODUCTION && !!userId }
+  );
+
+  return {
+    quizCount: IS_PRODUCTION ? (data?.quizCount ?? null) : 37,
+    streakDays: IS_PRODUCTION ? (data?.streakDays ?? null) : 12,
+  };
 }
 
 // ─── useUnifiedPartnerships ──────────────────────────────────
-// Returns partnerships for a given user.
+// Returns partnerships for a given user. Cached for 5 minutes.
 export function useUnifiedPartnerships(userId) {
-  const [prodPartnerships, setProdPartnerships] = useState([]);
-  const [loading, setLoading] = useState(IS_PRODUCTION);
-
-  useEffect(() => {
-    if (!IS_PRODUCTION || !userId) {
-      setLoading(false);
-      return;
-    }
-
-    supabase
+  const fetchPartnerships = useCallback(async () => {
+    const { data, error } = await supabase
       .from("partnerships")
       .select("*, users!partnerships_partner1_fkey(full_name, initials, avatar_color)")
-      .or(`partner1.eq.${userId},partner2.eq.${userId}`)
-      .then(({ data, error }) => {
-        if (!error && data) setProdPartnerships(data);
-        setLoading(false);
-      });
+      .or(`partner1.eq.${userId},partner2.eq.${userId}`);
+    if (error) throw error;
+    return data || [];
   }, [userId]);
 
+  const { data: prodPartnerships, loading } = useQuery(
+    `partnerships-${userId}`,
+    fetchPartnerships,
+    { staleTime: 5 * 60 * 1000, enabled: IS_PRODUCTION && !!userId }
+  );
+
   const partnerships = useMemo(() => {
-    if (IS_PRODUCTION) return prodPartnerships;
+    if (IS_PRODUCTION) return prodPartnerships || [];
     if (!userId) return [];
     return PARTNERSHIPS.filter((p) => p.partners?.includes(userId)).slice(0, 3);
   }, [prodPartnerships, userId]);
 
-  return { partnerships, loading };
+  return { partnerships, loading: IS_PRODUCTION ? loading : false };
 }
 
 // ─── useUnifiedQuizQuestions ─────────────────────────────────
@@ -278,29 +280,25 @@ function normalizeQuestion(q) {
 }
 
 // ─── useUnifiedStudents ──────────────────────────────────────
-// Returns the full student roster.
+// Returns the full student roster. Cached for 5 minutes.
 export function useUnifiedStudents() {
-  const [prodStudents, setProdStudents] = useState([]);
-  const [loading, setLoading] = useState(IS_PRODUCTION);
-
-  useEffect(() => {
-    if (!IS_PRODUCTION) {
-      setLoading(false);
-      return;
-    }
-
-    supabase
+  const fetchStudents = useCallback(async () => {
+    const { data, error } = await supabase
       .from("users")
       .select("*")
-      .eq("role", "student")
-      .then(({ data, error }) => {
-        if (!error && data) setProdStudents(data);
-        setLoading(false);
-      });
+      .eq("role", "student");
+    if (error) throw error;
+    return data || [];
   }, []);
 
+  const { data: prodStudents, loading } = useQuery(
+    "all-students",
+    fetchStudents,
+    { staleTime: 5 * 60 * 1000, enabled: IS_PRODUCTION }
+  );
+
   return {
-    students: IS_PRODUCTION ? prodStudents : STUDENTS,
-    loading,
+    students: IS_PRODUCTION ? (prodStudents || []) : STUDENTS,
+    loading: IS_PRODUCTION ? loading : false,
   };
 }

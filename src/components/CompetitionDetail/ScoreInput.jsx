@@ -16,13 +16,14 @@ export default function ScoreInput({
   const inputStyle = {
     display: "block",
     width: "100%",
-    padding: "10px 12px",
+    padding: "12px 14px",
     border: `1px solid ${C.gray200}`,
     borderRadius: 8,
-    fontSize: 13,
+    fontSize: 16,
     fontFamily: "inherit",
     outline: "none",
     boxSizing: "border-box",
+    minHeight: 44, // touch-friendly min height
   };
 
   return (
@@ -83,6 +84,7 @@ export default function ScoreInput({
             </span>
             <input
               type="number"
+              inputMode="numeric"
               value={score}
               onChange={(e) => onScoreChange(e.target.value)}
               placeholder="e.g. 125"
@@ -109,6 +111,7 @@ export default function ScoreInput({
             </span>
             <input
               type="number"
+              inputMode="numeric"
               value={placement}
               onChange={(e) => onPlacementChange(e.target.value)}
               placeholder="e.g. 1"
@@ -121,8 +124,9 @@ export default function ScoreInput({
             disabled={isSaving || (!score && !placement)}
             style={{
               width: "100%",
-              padding: "10px",
+              padding: "12px",
               borderRadius: 8,
+              minHeight: 44,
               border: "none",
               background:
                 isSaving || (!score && !placement)

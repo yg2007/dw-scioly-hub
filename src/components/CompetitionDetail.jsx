@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { C } from "../ui";
 import { IS_PRODUCTION } from "../lib/featureFlags";
-import { supabase } from "../lib/supabase";
+import { supabase, resilientQuery } from "../lib/supabase";
 import { EVENTS, STUDENTS } from "../data/mockData";
 import { useAppContext } from "../lib/AppContext";
 import EventCard from "./CompetitionDetail/EventCard";
@@ -51,30 +51,36 @@ export default function CompetitionDetail({ competition, onClose }) {
 
   const loadProductionData = async () => {
     // Fetch all events
-    const { data: eventsData, error: eventsErr } = await supabase
-      .from("events")
-      .select("*");
+    const { data: eventsData, error: eventsErr } = await resilientQuery(() =>
+      supabase
+        .from("events")
+        .select("*")
+    );
     if (eventsErr) throw eventsErr;
     setEvents(eventsData || []);
 
     // Fetch all students (role='student') with user_events join
-    const { data: usersData, error: usersErr } = await supabase
-      .from("users")
-      .select(
-        `
+    const { data: usersData, error: usersErr } = await resilientQuery(() =>
+      supabase
+        .from("users")
+        .select(
+          `
         id, full_name, initials, avatar_color, role,
         user_events (event_id)
       `
-      )
-      .eq("role", "student");
+        )
+        .eq("role", "student")
+    );
     if (usersErr) throw usersErr;
     setStudents(usersData || []);
 
     // Fetch team assignments for this competition
-    const { data: assignmentsData, error: assignmentsErr } = await supabase
-      .from("competition_team_assignments")
-      .select("*")
-      .eq("competition_id", competition.id);
+    const { data: assignmentsData, error: assignmentsErr } = await resilientQuery(() =>
+      supabase
+        .from("competition_team_assignments")
+        .select("*")
+        .eq("competition_id", competition.id)
+    );
     if (assignmentsErr) throw assignmentsErr;
 
     // Build assignments map
@@ -86,10 +92,12 @@ export default function CompetitionDetail({ competition, onClose }) {
     setAssignments(assignmentMap);
 
     // Fetch scores for this competition
-    const { data: scoresData, error: scoresErr } = await supabase
-      .from("competition_event_scores")
-      .select("*")
-      .eq("competition_id", competition.id);
+    const { data: scoresData, error: scoresErr } = await resilientQuery(() =>
+      supabase
+        .from("competition_event_scores")
+        .select("*")
+        .eq("competition_id", competition.id)
+    );
     if (scoresErr) throw scoresErr;
 
     // Build scores map: key = "${eventId}-${team}"
@@ -298,6 +306,30 @@ export default function CompetitionDetail({ competition, onClose }) {
     return events;
   }, [competition?.event_ids, events]);
 
+  // ── Quick Score Mode for mobile live scoring ────────────────
+  // NOTE: All hooks MUST be before any conditional return to satisfy Rules of Hooks
+  const [quickScoreMode, setQuickScoreMode] = useState(false);
+  const [quickScores, setQuickScores] = useState({}); // { eventId: { team: { score, placement } } }
+  const [quickSaving, setQuickSaving] = useState(false);
+
+  // Overall placement state — initialized from competition record
+  const [overallPlacement, setOverallPlacement] = useState(competition?.overall_placement ?? null);
+  const [totalTeams, setTotalTeams] = useState(competition?.total_teams ?? null);
+  const [totalPoints, setTotalPoints] = useState(competition?.total_points ?? null);
+
+  // Initialize quick scores from existing scores
+  useEffect(() => {
+    if (quickScoreMode && Object.keys(scores).length > 0) {
+      const qs = {};
+      for (const [key, val] of Object.entries(scores)) {
+        const [eid, team] = key.split("-");
+        if (!qs[eid]) qs[eid] = {};
+        qs[eid][team] = { score: val.score ? String(val.score) : "", placement: val.placement ? String(val.placement) : "" };
+      }
+      setQuickScores(qs);
+    }
+  }, [quickScoreMode, scores]);
+
   if (loading) {
     return (
       <div
@@ -334,8 +366,55 @@ export default function CompetitionDetail({ competition, onClose }) {
     );
   }
 
+  const updateQuickScore = (eventId, team, field, value) => {
+    setQuickScores(prev => ({
+      ...prev,
+      [eventId]: {
+        ...(prev[eventId] || {}),
+        [team]: {
+          ...(prev[eventId]?.[team] || { score: "", placement: "" }),
+          [field]: value,
+        },
+      },
+    }));
+  };
+
+  const saveAllQuickScores = async () => {
+    setQuickSaving(true);
+    try {
+      // Save per-event scores
+      for (const [eventId, teams] of Object.entries(quickScores)) {
+        for (const [team, data] of Object.entries(teams)) {
+          if (data.score || data.placement) {
+            await saveScore(parseInt(eventId), team, data.score, data.placement);
+          }
+        }
+      }
+
+      // Save overall placement to competition record
+      if (IS_PRODUCTION && competition?.id) {
+        const { error: placementErr } = await supabase
+          .from("competitions")
+          .update({
+            overall_placement: overallPlacement,
+            total_teams: totalTeams,
+            total_points: totalPoints,
+          })
+          .eq("id", competition.id);
+        if (placementErr) throw placementErr;
+      }
+
+      showToast("All scores saved!", "success");
+    } catch (err) {
+      showToast("Some scores failed to save", "warn");
+    } finally {
+      setQuickSaving(false);
+    }
+  };
+
   return (
     <div
+      className="comp-detail-overlay"
       style={{
         position: "fixed",
         inset: 0,
@@ -349,7 +428,21 @@ export default function CompetitionDetail({ competition, onClose }) {
       }}
       onClick={onClose}
     >
+      {/* Mobile-responsive styles */}
+      <style>{`
+        @media (max-width: 640px) {
+          .comp-detail-overlay { padding: 0 !important; }
+          .comp-detail-modal { border-radius: 0 !important; margin: 0 !important; min-height: 100vh; max-width: 100% !important; }
+          .comp-detail-header { padding: 16px !important; }
+          .comp-detail-body { padding: 16px !important; }
+          .team-grid { grid-template-columns: 1fr !important; }
+          .score-grid { grid-template-columns: 1fr !important; }
+          .quick-score-row { grid-template-columns: 1fr !important; }
+          .avail-student-btn { padding: 6px 8px !important; }
+        }
+      `}</style>
       <div
+        className="comp-detail-modal"
         style={{
           background: C.white,
           borderRadius: 16,
@@ -365,6 +458,7 @@ export default function CompetitionDetail({ competition, onClose }) {
         {/* HEADER */}
         {/* ═══════════════════════════════════════════════════════════════ */}
         <div
+          className="comp-detail-header"
           style={{
             padding: "24px 28px",
             borderBottom: `1px solid ${C.gray200}`,
@@ -380,6 +474,7 @@ export default function CompetitionDetail({ competition, onClose }) {
                 alignItems: "center",
                 gap: 8,
                 marginBottom: 8,
+                flexWrap: "wrap",
               }}
             >
               <button
@@ -401,6 +496,27 @@ export default function CompetitionDetail({ competition, onClose }) {
               >
                 ← Back
               </button>
+              {isStaff && (
+                <button
+                  onClick={() => setQuickScoreMode(!quickScoreMode)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "6px 12px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: quickScoreMode ? C.coral : C.teal,
+                    color: C.white,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {quickScoreMode ? "✕ Exit Quick Score" : "⚡ Quick Score"}
+                </button>
+              )}
             </div>
             <h1
               style={{
@@ -419,6 +535,7 @@ export default function CompetitionDetail({ competition, onClose }) {
                 gap: 12,
                 fontSize: 13,
                 color: C.gray600,
+                flexWrap: "wrap",
               }}
             >
               <span>{formatDate(competition?.date)}</span>
@@ -454,8 +571,153 @@ export default function CompetitionDetail({ competition, onClose }) {
         {/* ═══════════════════════════════════════════════════════════════ */}
         {/* EVENT CARDS */}
         {/* ═══════════════════════════════════════════════════════════════ */}
-        <div style={{ padding: "24px 28px" }}>
-          {eventList.length === 0 ? (
+        <div className="comp-detail-body" style={{ padding: "24px 28px" }}>
+          {/* ═══════ QUICK SCORE MODE ═══════ */}
+          {quickScoreMode ? (
+            <div>
+              <div style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                marginBottom: 16, flexWrap: "wrap", gap: 8,
+              }}>
+                <div>
+                  <h2 style={{ fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 2 }}>
+                    ⚡ Quick Score Entry
+                  </h2>
+                  <p style={{ fontSize: 12, color: C.gray400 }}>
+                    Enter placements for each event — tap Save All when done
+                  </p>
+                </div>
+                <button
+                  onClick={saveAllQuickScores}
+                  disabled={quickSaving}
+                  style={{
+                    padding: "12px 24px", borderRadius: 10, border: "none",
+                    background: quickSaving ? C.gray400 : C.teal, color: C.white,
+                    fontSize: 14, fontWeight: 700, cursor: quickSaving ? "default" : "pointer",
+                    fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6,
+                    minHeight: 44,
+                  }}
+                >
+                  {quickSaving ? (
+                    <><Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> Saving...</>
+                  ) : (
+                    <><Check size={16} /> Save All Scores</>
+                  )}
+                </button>
+              </div>
+
+              {/* ── Overall Team Placement ── */}
+              <div style={{
+                display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+                padding: "14px 16px", marginBottom: 16,
+                background: overallPlacement && overallPlacement <= 3 ? C.goldLight : C.offWhite || "#F9FAFB",
+                borderRadius: 12, border: `1px solid ${C.gray200}`,
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.navy, whiteSpace: "nowrap" }}>
+                  🏆 Overall Placement
+                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    type="number" inputMode="numeric" min="1"
+                    value={overallPlacement ?? ""}
+                    onChange={e => setOverallPlacement(e.target.value ? parseInt(e.target.value) : null)}
+                    placeholder="#"
+                    style={{
+                      width: 60, padding: "10px 6px", borderRadius: 8,
+                      border: `1px solid ${C.gray200}`, fontSize: 18, fontWeight: 800,
+                      fontFamily: "inherit", outline: "none", textAlign: "center",
+                      boxSizing: "border-box", minHeight: 44,
+                    }}
+                  />
+                  <span style={{ fontSize: 13, color: C.gray400 }}>of</span>
+                  <input
+                    type="number" inputMode="numeric" min="1"
+                    value={totalTeams ?? ""}
+                    onChange={e => setTotalTeams(e.target.value ? parseInt(e.target.value) : null)}
+                    placeholder="teams"
+                    style={{
+                      width: 72, padding: "10px 6px", borderRadius: 8,
+                      border: `1px solid ${C.gray200}`, fontSize: 16, fontWeight: 700,
+                      fontFamily: "inherit", outline: "none", textAlign: "center",
+                      boxSizing: "border-box", minHeight: 44,
+                    }}
+                  />
+                  <span style={{ fontSize: 13, color: C.gray400, marginLeft: 8 }}>pts</span>
+                  <input
+                    type="number" inputMode="decimal" min="0"
+                    value={totalPoints ?? ""}
+                    onChange={e => setTotalPoints(e.target.value ? parseFloat(e.target.value) : null)}
+                    placeholder="—"
+                    style={{
+                      width: 72, padding: "10px 6px", borderRadius: 8,
+                      border: `1px solid ${C.gray200}`, fontSize: 16, fontWeight: 700,
+                      fontFamily: "inherit", outline: "none", textAlign: "center",
+                      boxSizing: "border-box", minHeight: 44,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Quick score table header */}
+              <div style={{
+                display: "grid", gridTemplateColumns: "1fr 80px 80px 80px 80px",
+                gap: 8, padding: "8px 12px", fontSize: 11, fontWeight: 700,
+                color: C.gray400, textTransform: "uppercase", letterSpacing: 0.5,
+                borderBottom: `1px solid ${C.gray200}`,
+              }}
+                className="quick-score-row"
+              >
+                <span>Event</span>
+                <span style={{ textAlign: "center" }}>🟢 Place</span>
+                <span style={{ textAlign: "center" }}>🟢 Score</span>
+                <span style={{ textAlign: "center" }}>⚪ Place</span>
+                <span style={{ textAlign: "center" }}>⚪ Score</span>
+              </div>
+
+              {/* Quick score rows */}
+              {eventList.map(event => {
+                const eid = event?.id;
+                const greenData = quickScores[eid]?.green || { score: "", placement: "" };
+                const whiteData = quickScores[eid]?.white || { score: "", placement: "" };
+                const qInputStyle = {
+                  width: "100%", padding: "10px 6px", borderRadius: 8,
+                  border: `1px solid ${C.gray200}`, fontSize: 16, fontWeight: 700,
+                  fontFamily: "inherit", outline: "none", textAlign: "center",
+                  boxSizing: "border-box", minHeight: 44,
+                };
+                return (
+                  <div key={eid} style={{
+                    display: "grid", gridTemplateColumns: "1fr 80px 80px 80px 80px",
+                    gap: 8, padding: "10px 12px", alignItems: "center",
+                    borderBottom: `1px solid ${C.gray100}`,
+                  }}
+                    className="quick-score-row"
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                      <span style={{ fontSize: 18, flexShrink: 0 }}>{event?.icon || "📋"}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: C.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {event?.name}
+                      </span>
+                    </div>
+                    <input type="number" inputMode="numeric" value={greenData.placement}
+                      onChange={e => updateQuickScore(eid, "green", "placement", e.target.value)}
+                      placeholder="#" style={{ ...qInputStyle, background: "#F0FFF0" }} />
+                    <input type="number" inputMode="numeric" value={greenData.score}
+                      onChange={e => updateQuickScore(eid, "green", "score", e.target.value)}
+                      placeholder="—" style={{ ...qInputStyle, background: "#F0FFF0" }} />
+                    <input type="number" inputMode="numeric" value={whiteData.placement}
+                      onChange={e => updateQuickScore(eid, "white", "placement", e.target.value)}
+                      placeholder="#" style={{ ...qInputStyle, background: "#F8F8F8" }} />
+                    <input type="number" inputMode="numeric" value={whiteData.score}
+                      onChange={e => updateQuickScore(eid, "white", "score", e.target.value)}
+                      placeholder="—" style={{ ...qInputStyle, background: "#F8F8F8" }} />
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+          /* ═══════ NORMAL MODE ═══════ */
+          eventList.length === 0 ? (
             <div
               style={{
                 padding: 32,
@@ -502,7 +764,7 @@ export default function CompetitionDetail({ competition, onClose }) {
                 />
               ))}
             </div>
-          )}
+          ))}
         </div>
       </div>
 

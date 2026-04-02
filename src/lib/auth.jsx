@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "./supabase";
+import { clearCache } from "./query";
 
 const AuthContext = createContext(null);
 
@@ -92,6 +93,7 @@ export function AuthProvider({ children }) {
 
   async function signOut() {
     await supabase.auth.signOut();
+    clearCache(); // Wipe stale query data so next login starts fresh
     setSession(null);
     setUser(null);
     setProfile(null);

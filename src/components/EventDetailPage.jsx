@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { ArrowLeft, Brain, Clock, Play, Upload, Wrench, Users, AlertTriangle, TrendingUp, Lock } from 'lucide-react';
 import Breadcrumbs from './shared/Breadcrumbs';
@@ -10,7 +10,8 @@ import { IS_PRODUCTION } from '../lib/featureFlags';
 import { useTopicMastery } from '../hooks';
 import { useAppContext } from '../lib/AppContext';
 import { useCurrentEvent } from '../hooks/useCurrentEvent';
-import { supabase } from '../lib/supabase';
+import { supabase, resilientQuery } from '../lib/supabase';
+import { useQuery } from '../lib/query';
 
 // ═══════════════════════════════════════════════════════════════
 //  Event Detail Page
@@ -46,55 +47,57 @@ export default function EventDetailPage() {
     isCoach ? null : event?.id
   );
 
-  // Coach-mode data
-  const [coachData, setCoachData] = useState({ students: [], mastery: [], topics: [], scores: [] });
-  const [coachLoading, setCoachLoading] = useState(false);
+  // Coach-mode data (cached per event)
+  const eventId = event?.id;
+  const fetchCoachEventData = useCallback(async () => {
+    const [studentsRes, masteryRes, topicsRes, scoresRes] = await Promise.all([
+      IS_PRODUCTION
+        ? resilientQuery(() =>
+            supabase.from("users")
+              .select("id, full_name, initials, avatar_color, is_alumni, user_events(event_id)")
+              .eq("role", "student")
+              .or("is_alumni.eq.false,is_alumni.is.null")
+          )
+        : { data: STUDENTS.filter(s => s.events?.includes(eventId)).map(s => ({ ...s, full_name: s.name, avatar_color: s.color, user_events: s.events.map(eid => ({ event_id: eid })) })) },
+      IS_PRODUCTION
+        ? resilientQuery(() =>
+            supabase.from("topic_mastery").select("user_id, event_id, topic, score, trend").eq("event_id", eventId)
+          )
+        : { data: [] },
+      IS_PRODUCTION
+        ? resilientQuery(() =>
+            supabase.from("event_topics").select("name, sort_order").eq("event_id", eventId).order("sort_order")
+          )
+        : { data: (event?.topics || []).map((t, i) => ({ name: t, sort_order: i })) },
+      IS_PRODUCTION
+        ? resilientQuery(() =>
+            supabase.from("competition_event_scores").select("competition_id, team, score, placement, competitions(name, date)").eq("event_id", eventId)
+          )
+        : { data: [] },
+    ]);
 
-  useEffect(() => {
-    if (!isCoach || !event?.id) return;
-    setCoachLoading(true);
+    const allStudents = (studentsRes.data || [])
+      .filter(s => (s.user_events || []).some(ue => ue.event_id === eventId))
+      .map(s => ({
+        id: s.id, name: s.full_name || s.name, initials: s.initials,
+        color: s.avatar_color || s.color || C.teal,
+      }));
 
-    (async () => {
-      try {
-        const [studentsRes, masteryRes, topicsRes, scoresRes] = await Promise.all([
-          IS_PRODUCTION
-            ? supabase.from("users")
-                .select("id, full_name, initials, avatar_color, user_events(event_id)")
-                .eq("role", "student")
-            : { data: STUDENTS.filter(s => s.events?.includes(event.id)).map(s => ({ ...s, full_name: s.name, avatar_color: s.color, user_events: s.events.map(eid => ({ event_id: eid })) })) },
-          IS_PRODUCTION
-            ? supabase.from("topic_mastery").select("user_id, event_id, topic, score, trend").eq("event_id", event.id)
-            : { data: [] },
-          IS_PRODUCTION
-            ? supabase.from("event_topics").select("name, sort_order").eq("event_id", event.id).order("sort_order")
-            : { data: (event.topics || []).map((t, i) => ({ name: t, sort_order: i })) },
-          IS_PRODUCTION
-            ? supabase.from("competition_event_scores").select("competition_id, team, score, placement, competitions(name, date)").eq("event_id", event.id)
-            : { data: [] },
-        ]);
-
-        const allStudents = (studentsRes.data || [])
-          .filter(s => (s.user_events || []).some(ue => ue.event_id === event.id))
-          .map(s => ({
-            id: s.id, name: s.full_name || s.name, initials: s.initials,
-            color: s.avatar_color || s.color || C.teal,
-          }));
-
-        setCoachData({
-          students: allStudents,
-          mastery: masteryRes.data || [],
-          topics: (topicsRes.data || []).map(t => t.name),
-          scores: scoresRes.data || [],
-        });
-      } catch (err) {
-        console.error("EventDetailPage coach data:", err);
-      } finally {
-        setCoachLoading(false);
-      }
-    })();
-  // event.topics used only as prototype mock fallback; re-run on event ID change is sufficient
+    return {
+      students: allStudents,
+      mastery: masteryRes.data || [],
+      topics: (topicsRes.data || []).map(t => t.name),
+      scores: scoresRes.data || [],
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCoach, event?.id]);
+  }, [eventId]);
+
+  const { data: coachDataCached, loading: coachLoading } = useQuery(
+    `event-detail-coach-${eventId}`,
+    fetchCoachEventData,
+    { staleTime: 5 * 60 * 1000, enabled: isCoach && !!eventId }
+  );
+  const coachData = coachDataCached || { students: [], mastery: [], topics: [], scores: [] };
 
   // ── Loading ──────────────────────────────────────────────────
   if (eventLoading || coachLoading) {

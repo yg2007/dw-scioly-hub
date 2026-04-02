@@ -4,7 +4,7 @@ import { SkeletonDashboard } from './shared/Skeleton';
 import { C } from '../ui';
 import { IS_PRODUCTION } from '../lib/featureFlags';
 import { EVENTS, STUDENTS, generateMastery } from '../data/mockData';
-import { supabase } from '../lib/supabase';
+import { supabase, resilientQuery } from '../lib/supabase';
 
 // ═══════════════════════════════════════════════════════════════
 //  Student Capability Matrix — Coach/Admin Page
@@ -36,15 +36,23 @@ export default function StudentCapabilityMatrix() {
     setDataLoading(true);
     try {
       const [studentsRes, eventsRes, masteryRes, topicsRes] = await Promise.all([
-        supabase.from("users")
-          .select("id, full_name, initials, avatar_color, role, user_events(event_id)")
-          .eq("role", "student").order("full_name"),
-        supabase.from("events")
-          .select("id, name, type, team_size, icon").order("id"),
-        supabase.from("topic_mastery")
-          .select("user_id, event_id, topic, score, trend"),
-        supabase.from("event_topics")
-          .select("event_id, name, sort_order").order("sort_order"),
+        resilientQuery(() =>
+          supabase.from("users")
+            .select("id, full_name, initials, avatar_color, role, user_events(event_id)")
+            .eq("role", "student").order("full_name")
+        ),
+        resilientQuery(() =>
+          supabase.from("events")
+            .select("id, name, type, team_size, icon").order("id")
+        ),
+        resilientQuery(() =>
+          supabase.from("topic_mastery")
+            .select("user_id, event_id, topic, score, trend")
+        ),
+        resilientQuery(() =>
+          supabase.from("event_topics")
+            .select("event_id, name, sort_order").order("sort_order")
+        ),
       ]);
 
       const topicsByEvent = {};

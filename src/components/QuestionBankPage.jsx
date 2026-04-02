@@ -1,22 +1,24 @@
 import { useState } from "react";
-import { ClipboardList, BookOpen, Activity, Upload } from "lucide-react";
+import { ClipboardList, BookOpen, Activity, Upload, PlusCircle } from "lucide-react";
 import { C } from "../ui";
 import ReviewQueueTab from "./QuestionBankPage/ReviewQueueTab";
 import BrowseTab from "./QuestionBankPage/BrowseTab";
 import IngestionLogTab from "./QuestionBankPage/IngestionLogTab";
 import ImportTab from "./QuestionBankPage/ImportTab";
+import AddQuestionTab from "./QuestionBankPage/AddQuestionTab";
 
 // ─── Main Page ────────────────────────────────────────────────
 
 const TABS = [
+  { id: "add", label: "Add Question", icon: <PlusCircle size={15} /> },
+  { id: "import", label: "Bulk Import", icon: <Upload size={15} /> },
+  { id: "browse", label: "Browse", icon: <BookOpen size={15} /> },
   { id: "queue", label: "Review Queue", icon: <ClipboardList size={15} /> },
-  { id: "browse", label: "Browse Questions", icon: <BookOpen size={15} /> },
-  { id: "import", label: "Import Questions", icon: <Upload size={15} /> },
   { id: "log", label: "Ingestion Log", icon: <Activity size={15} /> },
 ];
 
 export default function QuestionBankPage() {
-  const [activeTab, setActiveTab] = useState("queue");
+  const [activeTab, setActiveTab] = useState("add");
 
   return (
     <div>
@@ -54,9 +56,10 @@ export default function QuestionBankPage() {
 
       {/* Tab content */}
       <div style={{ background: C.offWhite, borderRadius: 16, padding: 24, border: `1px solid ${C.gray200}` }}>
-        {activeTab === "queue" && <ReviewQueueTab />}
-        {activeTab === "browse" && <BrowseTab />}
+        {activeTab === "add" && <AddQuestionTab />}
         {activeTab === "import" && <ImportTab />}
+        {activeTab === "browse" && <BrowseTab />}
+        {activeTab === "queue" && <ReviewQueueTab />}
         {activeTab === "log" && <IngestionLogTab />}
       </div>
     </div>

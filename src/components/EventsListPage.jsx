@@ -1,6 +1,6 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, AlertTriangle, CheckCircle2, Search } from 'lucide-react';
+import { Users, AlertTriangle, CheckCircle2, Search, Plus, Pencil } from 'lucide-react';
 import { SkeletonEventGrid } from './shared/Skeleton';
 import { C } from '../ui';
 import { EVENTS, STUDENTS, PARTNERSHIPS, generateMastery } from '../data/mockData';
@@ -8,6 +8,8 @@ import { IS_PRODUCTION } from '../lib/featureFlags';
 import { useAppContext } from '../lib/AppContext';
 import { useUnifiedEvents } from '../hooks/useUnifiedData';
 import { supabase } from '../lib/supabase';
+import { useQuery } from '../lib/query';
+import EventManagementModal from './EventManagementModal';
 
 // ═══════════════════════════════════════════════════════════════
 //  Events List Page
@@ -29,55 +31,47 @@ export default function EventsListPage() {
   const { currentUser: user, userRole } = useAppContext();
   const isCoach = userRole === "coach" || userRole === "admin";
 
-  const { events, loading: eventsLoading } = useUnifiedEvents();
+  const { events, loading: eventsLoading, refetch } = useUnifiedEvents();
 
-  // ── Coach-specific data (production) ─────────────────────────
-  const [coachData, setCoachData] = useState({
-    students: [],       // all students with their event assignments
-    partnerships: [],   // all partnerships
-    mastery: [],        // all topic_mastery rows
-    eventTopics: [],    // event_topics for topic counts
-  });
-  const [coachLoading, setCoachLoading] = useState(IS_PRODUCTION && isCoach);
+  // ── Coach-specific data (production, cached) ─────────────────
+  const fetchCoachData = useCallback(async () => {
+    const [studentsRes, partnershipsRes, masteryRes, topicsRes] = await Promise.all([
+      supabase
+        .from("users")
+        .select("id, full_name, initials, avatar_color, is_alumni, user_events(event_id)")
+        .eq("role", "student")
+        .or("is_alumni.eq.false,is_alumni.is.null"),
+      supabase
+        .from("partnerships")
+        .select("id, event_id, partner_a, partner_b"),
+      supabase
+        .from("topic_mastery")
+        .select("user_id, event_id, score"),
+      supabase
+        .from("event_topics")
+        .select("event_id, name"),
+    ]);
+    return {
+      students: (studentsRes.data || []).map(s => ({
+        ...s,
+        eventIds: (s.user_events || []).map(ue => ue.event_id),
+      })),
+      partnerships: partnershipsRes.data || [],
+      mastery: masteryRes.data || [],
+      eventTopics: topicsRes.data || [],
+    };
+  }, []);
 
-  useEffect(() => {
-    if (!IS_PRODUCTION || !isCoach) return;
+  const { data: coachDataCached, loading: coachLoading } = useQuery(
+    "events-list-coach-data",
+    fetchCoachData,
+    { staleTime: 5 * 60 * 1000, enabled: IS_PRODUCTION && isCoach }
+  );
+  const coachData = coachDataCached || { students: [], partnerships: [], mastery: [], eventTopics: [] };
 
-    (async () => {
-      setCoachLoading(true);
-      try {
-        const [studentsRes, partnershipsRes, masteryRes, topicsRes] = await Promise.all([
-          supabase
-            .from("users")
-            .select("id, full_name, initials, avatar_color, user_events(event_id)")
-            .eq("role", "student"),
-          supabase
-            .from("partnerships")
-            .select("id, event_id, partner_a, partner_b"),
-          supabase
-            .from("topic_mastery")
-            .select("user_id, event_id, score"),
-          supabase
-            .from("event_topics")
-            .select("event_id, name"),
-        ]);
-
-        setCoachData({
-          students: (studentsRes.data || []).map(s => ({
-            ...s,
-            eventIds: (s.user_events || []).map(ue => ue.event_id),
-          })),
-          partnerships: partnershipsRes.data || [],
-          mastery: masteryRes.data || [],
-          eventTopics: topicsRes.data || [],
-        });
-      } catch (err) {
-        console.error("EventsListPage coach data:", err);
-      } finally {
-        setCoachLoading(false);
-      }
-    })();
-  }, [isCoach]);
+  // ── Event management modal (coach only) ─────────────────────
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null); // event object for editing
 
   // ── Search / filter (coach only) ────────────────────────────
   const [search, setSearch] = useState("");
@@ -271,10 +265,25 @@ export default function EventsListPage() {
 
   return (
     <div>
-      <h2 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>All Events — Team Readiness</h2>
-      <p style={{ color: C.gray600, fontSize: 14, marginBottom: 24 }}>
-        Overview of student assignments, mastery levels, and partnership status across all {events.length} events.
-      </p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+        <div>
+          <h2 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>All Events — Team Readiness</h2>
+          <p style={{ color: C.gray600, fontSize: 14 }}>
+            Overview of student assignments, mastery levels, and partnership status across all {events.length} events.
+          </p>
+        </div>
+        {IS_PRODUCTION && (
+          <button onClick={() => { setEditingEvent(null); setShowEventModal(true); }}
+            style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "10px 16px",
+              background: C.teal, color: C.white, border: "none", borderRadius: 10,
+              fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+              flexShrink: 0,
+            }}>
+            <Plus size={14} /> Add Event
+          </button>
+        )}
+      </div>
 
       {/* Summary Row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
@@ -346,18 +355,39 @@ export default function EventsListPage() {
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <span style={{ fontSize: 28 }}>{ev.icon}</span>
                   <div>
-                    <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{ev.name}</h3>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{ev.name}</h3>
+                      {ev.is_trial && (
+                        <span style={{ padding: "1px 6px", borderRadius: 100, fontSize: 9, fontWeight: 700,
+                          textTransform: "uppercase", background: "#EDE9FE", color: "#7C3AED" }}>Trial</span>
+                      )}
+                    </div>
                     <span style={{ padding: "2px 8px", borderRadius: 100, fontSize: 10, fontWeight: 700,
                       textTransform: "uppercase", background: tc.bg, color: tc.text }}>{tc.label}</span>
                   </div>
                 </div>
-                {/* Readiness badge */}
-                <div style={{
-                  padding: "6px 12px", borderRadius: 10, background: readinessBg,
-                  fontSize: 14, fontWeight: 800, color: readinessColor,
-                  minWidth: 48, textAlign: "center",
-                }}>
-                  {hasData ? `${readiness}%` : "—"}
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {IS_PRODUCTION && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditingEvent(ev); setShowEventModal(true); }}
+                      style={{
+                        width: 28, height: 28, borderRadius: 6, border: `1px solid ${C.gray200}`,
+                        background: C.white, cursor: "pointer", display: "flex",
+                        alignItems: "center", justifyContent: "center", color: C.gray400,
+                      }}
+                      title="Edit event"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  )}
+                  {/* Readiness badge */}
+                  <div style={{
+                    padding: "6px 12px", borderRadius: 10, background: readinessBg,
+                    fontSize: 14, fontWeight: 800, color: readinessColor,
+                    minWidth: 48, textAlign: "center",
+                  }}>
+                    {hasData ? `${readiness}%` : "—"}
+                  </div>
                 </div>
               </div>
 
@@ -444,6 +474,15 @@ export default function EventsListPage() {
         <div style={{ textAlign: "center", padding: 40, color: C.gray400 }}>
           No events match your search.
         </div>
+      )}
+
+      {/* Event Management Modal */}
+      {showEventModal && (
+        <EventManagementModal
+          event={editingEvent}
+          onClose={() => { setShowEventModal(false); setEditingEvent(null); }}
+          onSaved={() => { refetch?.(); }}
+        />
       )}
     </div>
   );

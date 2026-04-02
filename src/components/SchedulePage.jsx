@@ -205,19 +205,56 @@ export default function SchedulePage() {
           <h3 style={{ fontSize: 14, fontWeight: 700, margin: "28px 0 14px", color: C.gray400, textTransform: "uppercase", letterSpacing: 1 }}>
             Past ({past.length})
           </h3>
-          {(past || []).map((comp) => (
+          {(past || []).map((comp) => {
+            const hasPlacement = comp?.overall_placement != null;
+            const tc = TYPE_COLORS[comp?.type] || TYPE_COLORS.other;
+            const dp = formatDateParts(comp?.date);
+            return (
             <div key={comp?.id} style={{
               display: "flex", alignItems: "center", gap: 16, padding: "14px 20px",
-              background: C.white, borderRadius: 12, border: `1px solid ${C.gray100}`, marginBottom: 8, opacity: 0.6,
+              background: C.white, borderRadius: 12, border: `1px solid ${C.gray200}`, marginBottom: 10,
             }}>
-              <div style={{ width: 52, textAlign: "center", fontSize: 13, color: C.gray400, flexShrink: 0 }}>
-                {formatDate(comp?.date).split(",")?.[0]}
+              {/* Date or placement badge */}
+              {hasPlacement ? (
+                <div style={{
+                  width: 52, textAlign: "center", flexShrink: 0,
+                  background: comp.overall_placement <= 3 ? C.goldLight : C.gray100,
+                  borderRadius: 10, padding: "6px 0",
+                }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: comp.overall_placement <= 3 ? "#A0522D" : C.gray600, lineHeight: 1 }}>
+                    {comp.overall_placement}<span style={{ fontSize: 11, fontWeight: 600 }}>
+                      {comp.overall_placement === 1 ? "st" : comp.overall_placement === 2 ? "nd" : comp.overall_placement === 3 ? "rd" : "th"}
+                    </span>
+                  </div>
+                  {comp.total_teams && (
+                    <div style={{ fontSize: 10, color: C.gray400, marginTop: 2 }}>of {comp.total_teams}</div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ width: 52, textAlign: "center", flexShrink: 0 }}>
+                  <div style={{ fontSize: 11, color: C.gray400, fontWeight: 600, textTransform: "uppercase" }}>{dp?.month}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: C.gray400, lineHeight: 1 }}>{dp?.day}</div>
+                </div>
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>{comp?.name}</div>
+                <div style={{ display: "flex", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
+                  {comp?.location && (
+                    <span style={{ fontSize: 12, color: C.gray400, display: "flex", alignItems: "center", gap: 3 }}>
+                      <MapPin size={11} /> {comp?.location}
+                    </span>
+                  )}
+                  {comp?.total_points != null && (
+                    <span style={{ fontSize: 12, color: C.gray400 }}>{comp.total_points} pts</span>
+                  )}
+                </div>
               </div>
-              <div style={{ flex: 1, fontSize: 14, color: C.gray600 }}>{comp?.name}</div>
-              {comp?.location && <span style={{ fontSize: 12, color: C.gray400 }}>{comp?.location}</span>}
-              <span style={{ fontSize: 11, color: C.gray400 }}>Completed ✓</span>
+              <span style={{
+                padding: "4px 10px", borderRadius: 100, fontSize: 10, fontWeight: 700,
+                textTransform: "uppercase", background: tc?.bg, color: tc?.text, flexShrink: 0,
+              }}>{comp?.type}</span>
               {isStaff && (
-                <div style={{ display: "flex", gap: 4 }}>
+                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                   <button onClick={() => setSelectedComp(comp)} title="Manage Teams & Scores"
                     style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${C.gold}40`, background: C.goldLight,
                       cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: "#A0522D",
@@ -235,7 +272,8 @@ export default function SchedulePage() {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </>
       )}
 
@@ -286,6 +324,9 @@ function CompetitionForm({ initial, onSave, onClose }) {
   const [startTime, setStartTime] = useState(initial?.start_time?.slice(0, 5) || "");
   const [endTime, setEndTime] = useState(initial?.end_time?.slice(0, 5) || "");
   const [notes, setNotes] = useState(initial?.notes || "");
+  const [overallPlacement, setOverallPlacement] = useState(initial?.overall_placement ?? "");
+  const [totalTeams, setTotalTeams] = useState(initial?.total_teams ?? "");
+  const [totalPoints, setTotalPoints] = useState(initial?.total_points ?? "");
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -303,6 +344,9 @@ function CompetitionForm({ initial, onSave, onClose }) {
         start_time: startTime || null,
         end_time: endTime || null,
         notes: notes.trim() || null,
+        overall_placement: overallPlacement ? parseInt(overallPlacement) : null,
+        total_teams: totalTeams ? parseInt(totalTeams) : null,
+        total_points: totalPoints ? parseFloat(totalPoints) : null,
       });
     } catch (err) {
       setError(err.message || "Failed to save");
@@ -381,6 +425,30 @@ function CompetitionForm({ initial, onSave, onClose }) {
               <span style={{ fontSize: 12, fontWeight: 700, color: C.gray600, textTransform: "uppercase", letterSpacing: 1 }}>End Time</span>
               <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} style={inputStyle} />
             </label>
+          </div>
+
+          {/* Overall Placement (optional — typically filled after competition) */}
+          <div style={{ marginBottom: 14, padding: "12px 14px", background: "#FAFAFA", borderRadius: 10, border: `1px solid ${C.gray200}` }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: C.gray600, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 8 }}>
+              Results (optional)
+            </span>
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <label style={{ flex: 1 }}>
+                <span style={{ fontSize: 11, color: C.gray400 }}>Placement</span>
+                <input type="number" min="1" value={overallPlacement} onChange={(e) => setOverallPlacement(e.target.value)}
+                  placeholder="#" style={{ ...inputStyle, textAlign: "center" }} />
+              </label>
+              <label style={{ flex: 1 }}>
+                <span style={{ fontSize: 11, color: C.gray400 }}>Total Teams</span>
+                <input type="number" min="1" value={totalTeams} onChange={(e) => setTotalTeams(e.target.value)}
+                  placeholder="e.g. 24" style={{ ...inputStyle, textAlign: "center" }} />
+              </label>
+              <label style={{ flex: 1 }}>
+                <span style={{ fontSize: 11, color: C.gray400 }}>Total Points</span>
+                <input type="number" min="0" step="0.5" value={totalPoints} onChange={(e) => setTotalPoints(e.target.value)}
+                  placeholder="—" style={{ ...inputStyle, textAlign: "center" }} />
+              </label>
+            </div>
           </div>
 
           <label style={{ display: "block", marginBottom: 20 }}>

@@ -4,7 +4,8 @@ import { SkeletonDashboard } from './shared/Skeleton';
 import { C } from '../ui';
 import { IS_PRODUCTION } from '../lib/featureFlags';
 import { EVENTS, STUDENTS, PARTNERSHIPS, generateMastery } from '../data/mockData';
-import { supabase } from '../lib/supabase';
+import { supabase, resilientQuery } from '../lib/supabase';
+import { useQuery, invalidateCache } from '../lib/query';
 import EventPartnershipCard from './PartnershipManagement/EventPartnershipCard';
 import { getSynergyColor, getSynergyBg } from './PartnershipManagement/synergyUtils';
 
@@ -27,74 +28,66 @@ export default function PartnershipManagement() {
   const [mutating, setMutating] = useState(false);
 
   // ── Data state ───────────────────────────────────────────────
-  const [prodPartnerships, setProdPartnerships] = useState([]);
-  const [prodEvents, setProdEvents] = useState([]);
-  const [prodStudents, setProdStudents] = useState([]);
-  const [prodMastery, setProdMastery] = useState([]); // all topic_mastery rows
-  const [dataLoading, setDataLoading] = useState(IS_PRODUCTION);
-
   // Mock-mode partnerships (mutable copy)
   const [mockPartnerships, setMockPartnerships] = useState(PARTNERSHIPS);
 
-  // ── Fetch all data from Supabase ─────────────────────────────
-  const loadProductionData = useCallback(async () => {
-    if (!IS_PRODUCTION) return;
-    setDataLoading(true);
-    setError(null);
+  // ── Fetch all data from Supabase (cached) ────────────────────
+  const fetchPartnershipData = useCallback(async () => {
+    const [eventsRes, usersRes, partnershipsRes, masteryRes] = await Promise.all([
+      resilientQuery(() =>
+        supabase.from("events").select("id, name, type, team_size, icon").order("id")
+      ),
+      resilientQuery(() =>
+        supabase.from("users").select("id, full_name, initials, avatar_color, role, user_events(event_id)").eq("role", "student").order("full_name")
+      ),
+      resilientQuery(() =>
+        supabase.from("partnerships").select("id, event_id, partner_a, partner_b, status, mode")
+      ),
+      resilientQuery(() =>
+        supabase.from("topic_mastery").select("user_id, event_id, topic, score")
+      ),
+    ]);
 
-    try {
-      const [eventsRes, usersRes, partnershipsRes, masteryRes] = await Promise.all([
-        supabase
-          .from("events")
-          .select("id, name, type, team_size, icon")
-          .order("id"),
-        supabase
-          .from("users")
-          .select("id, full_name, initials, avatar_color, role, user_events(event_id)")
-          .eq("role", "student")
-          .order("full_name"),
-        supabase
-          .from("partnerships")
-          .select("id, event_id, partner_a, partner_b, status, mode"),
-        supabase
-          .from("topic_mastery")
-          .select("user_id, event_id, topic, score"),
-      ]);
+    if (eventsRes.error) throw eventsRes.error;
+    if (usersRes.error) throw usersRes.error;
+    if (partnershipsRes.error) throw partnershipsRes.error;
+    if (masteryRes.error) throw masteryRes.error;
 
-      if (eventsRes.error) throw eventsRes.error;
-      if (usersRes.error) throw usersRes.error;
-      if (partnershipsRes.error) throw partnershipsRes.error;
-      if (masteryRes.error) throw masteryRes.error;
-
-      setProdEvents(eventsRes.data || []);
-      setProdStudents(
-        (usersRes.data || []).map(u => ({
-          ...u,
-          name: u.full_name,
-          color: u.avatar_color || C.teal,
-          events: (u.user_events || []).map(ue => ue.event_id),
-        }))
-      );
-      // Normalize partnerships with status + mode
-      setProdPartnerships(
-        (partnershipsRes.data || []).map(p => ({
-          dbId: p.id,
-          eventId: p.event_id,
-          partners: [p.partner_a, p.partner_b],
-          status: p.status || 'draft',
-          mode: p.mode || 'competition',
-        }))
-      );
-      setProdMastery(masteryRes.data || []);
-    } catch (err) {
-      console.error("PartnershipManagement load:", err);
-      setError("Failed to load data: " + (err.message || err));
-    } finally {
-      setDataLoading(false);
-    }
+    return {
+      events: eventsRes.data || [],
+      students: (usersRes.data || []).map(u => ({
+        ...u,
+        name: u.full_name,
+        color: u.avatar_color || C.teal,
+        events: (u.user_events || []).map(ue => ue.event_id),
+      })),
+      partnerships: (partnershipsRes.data || []).map(p => ({
+        dbId: p.id,
+        eventId: p.event_id,
+        partners: [p.partner_a, p.partner_b],
+        status: p.status || 'draft',
+        mode: p.mode || 'competition',
+      })),
+      mastery: masteryRes.data || [],
+    };
   }, []);
 
-  useEffect(() => { loadProductionData(); }, [loadProductionData]);
+  const { data: prodData, loading: dataLoading, refetch: refetchData } = useQuery(
+    "partnership-management-data",
+    fetchPartnershipData,
+    { staleTime: 5 * 60 * 1000, enabled: IS_PRODUCTION }
+  );
+
+  const prodEvents = prodData?.events || [];
+  const prodStudents = prodData?.students || [];
+  const prodPartnerships = prodData?.partnerships || [];
+  const prodMastery = prodData?.mastery || [];
+
+  // Reload helper for after mutations
+  const loadProductionData = useCallback(async () => {
+    invalidateCache("partnership-management-data");
+    return refetchData();
+  }, [refetchData]);
 
   // ── Unified data source ──────────────────────────────────────
   const events = IS_PRODUCTION ? prodEvents : EVENTS;
@@ -113,18 +106,27 @@ export default function PartnershipManagement() {
     return map;
   }, [prodMastery]);
 
-  // ── Helper: get topics for an event ──────────────────────────
+  // ── Helper: get topics for an event (precomputed map) ────────
+  const eventTopicsMap = useMemo(() => {
+    if (!IS_PRODUCTION) return null;
+    const map = {};
+    for (const row of prodMastery) {
+      if (!map[row.event_id]) map[row.event_id] = new Set();
+      map[row.event_id].add(row.topic);
+    }
+    // Convert sets to arrays
+    for (const key of Object.keys(map)) {
+      map[key] = [...map[key]];
+    }
+    return map;
+  }, [prodMastery]);
+
   const getEventTopics = useCallback((eventId) => {
     if (!IS_PRODUCTION) {
       return EVENTS.find(e => e.id === eventId)?.topics || [];
     }
-    // In production, derive topics from topic_mastery rows for this event
-    const topicSet = new Set();
-    for (const row of prodMastery) {
-      if (row.event_id === eventId) topicSet.add(row.topic);
-    }
-    return [...topicSet];
-  }, [prodMastery]);
+    return eventTopicsMap?.[eventId] || [];
+  }, [eventTopicsMap]);
 
   // ── Synergy score: real or mock ──────────────────────────────
   const calculateSynergy = useCallback((studentAId, studentBId, eventId) => {
