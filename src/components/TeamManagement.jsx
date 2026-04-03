@@ -5,6 +5,7 @@ import { C } from "../ui";
 import { IS_PRODUCTION } from "../lib/featureFlags";
 import { EVENTS, STUDENTS } from "../data/mockData";
 import { useTeamManagement } from "../hooks/useTeamManagement";
+import { useDebounce } from "../hooks/useDebounce";
 import InviteModal from "./TeamManagement/InviteModal";
 import BulkImportModal from "./TeamManagement/BulkImportModal";
 import EventAssignmentModal from "./TeamManagement/EventAssignmentModal";
@@ -37,6 +38,8 @@ export default function TeamManagement() {
   const [emailDraft, setEmailDraft] = useState("");
   const [emailSaving, setEmailSaving] = useState(false);
   const [toast, setToast] = useState(null);
+
+  const debouncedSearch = useDebounce(search, 200);
 
   // ── Production: real Supabase data via hook ──────────
   const team = useTeamManagement();
@@ -75,8 +78,8 @@ export default function TeamManagement() {
   const filtered = useMemo(() => {
     let list = activeRoster;
     if (filterRole !== "all") list = list.filter((u) => u?.role === filterRole);
-    if (search) {
-      const q = search.toLowerCase();
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
       list = list.filter(
         (u) =>
           (u?.full_name || "").toLowerCase().includes(q) ||
@@ -84,7 +87,7 @@ export default function TeamManagement() {
       );
     }
     return list;
-  }, [activeRoster, filterRole, search]);
+  }, [activeRoster, filterRole, debouncedSearch]);
 
   // ── Stats ──────────────────────────────────────────
   const stats = useMemo(() => ({

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "./supabase";
 import { clearCache } from "./query";
+import { prefetchReferenceData, clearReferenceCache } from "./referenceData";
 
 const AuthContext = createContext(null);
 
@@ -66,6 +67,8 @@ export function AuthProvider({ children }) {
         if (retryData) {
           setProfile(retryData);
           setLoading(false);
+          // Prefetch stable reference data after successful login
+          await prefetchReferenceData();
         } else if (--retries > 0) {
           setTimeout(retry, 1500);
         } else {
@@ -78,6 +81,8 @@ export function AuthProvider({ children }) {
     } else {
       setProfile(data);
       setLoading(false);
+      // Prefetch stable reference data after successful login
+      await prefetchReferenceData();
     }
   }
 
@@ -94,6 +99,7 @@ export function AuthProvider({ children }) {
   async function signOut() {
     await supabase.auth.signOut();
     clearCache(); // Wipe stale query data so next login starts fresh
+    clearReferenceCache(); // Also clear prefetched reference data
     setSession(null);
     setUser(null);
     setProfile(null);

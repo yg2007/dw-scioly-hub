@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Search, RefreshCw } from "lucide-react";
 import { C } from "../../ui";
 import { useEventList, useQuestionBrowser } from "../../hooks/useQuestionBank";
+import { useDebounce } from "../../hooks/useDebounce";
 import { Badge, EmptyState, LoadingRows, ErrorBanner } from "./shared";
 
 const DIFF_LABEL = { 1: "Easy", 2: "Medium", 3: "Hard" };
@@ -48,9 +49,11 @@ export default function BrowseTab() {
   const [difficulty, setDifficulty] = useState("");
   const [questionType, setQuestionType] = useState("");
 
+  const debouncedSearch = useDebounce(search, 300);
+
   const { questions, loading, error, refetch } = useQuestionBrowser({
     eventId: eventId || undefined,
-    search: search || undefined,
+    search: debouncedSearch || undefined,
     difficulty: difficulty || undefined,
     questionType: questionType || undefined,
   });

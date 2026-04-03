@@ -13,6 +13,7 @@ import {
 import { useCompetitions } from '../hooks/useCompetitions';
 import { usePartners } from '../hooks/usePartners';
 import { useUserMastery } from '../hooks/useQuizzes';
+import { prefetchStudentRoutes } from '../lib/prefetch';
 import TodaysFocusCard from './TodaysFocusCard';
 
 export default function StudentDashboard() {
@@ -141,6 +142,9 @@ export default function StudentDashboard() {
       }
     } catch { /* ignore */ }
   }, [events]);
+
+  // Prefetch likely-next routes after dashboard renders
+  useEffect(() => { prefetchStudentRoutes(); }, []);
 
   // ── Loading state ───────────────────────────────────────────
   if (eventsLoading) {

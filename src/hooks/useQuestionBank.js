@@ -213,10 +213,83 @@ export function useReviewQueueCount() {
   return { count: data || 0, loading };
 }
 
-// ─── Question Browser ─────────────────────────────────────────
+// ─── Question Browser Summary (lightweight, for list display) ──
+
+/**
+ * Fetch lightweight summary data for browsing questions.
+ * Returns only essential fields: id, topic, subtopic, difficulty, etc.
+ * Does NOT include heavy question text or options — use useQuestionDetail for full data.
+ *
+ * @param {Object} filters - { eventId, topic, search, difficulty, questionType }
+ */
+export function useQuestionBrowserSummary(filters = {}) {
+  const { eventId, topic, search, difficulty, questionType } = filters;
+
+  // Build a stable cache key from filters
+  const cacheKey = `question-summary-${eventId || ""}-${topic || ""}-${search || ""}-${difficulty || ""}-${questionType || ""}`;
+
+  const queryFn = useCallback(async () => {
+    let q = supabase
+      .from("quiz_questions")
+      .select(`
+        id, topic, subtopic, difficulty, question_type, source_tournament, points, ai_generated,
+        event_id,
+        events ( id, name, icon )
+      `)
+      .order("event_id", { ascending: true })
+      .order("difficulty", { ascending: true })
+      .limit(200);
+
+    if (eventId) q = q.eq("event_id", eventId);
+    if (difficulty) q = q.eq("difficulty", Number(difficulty));
+    if (questionType) q = q.eq("question_type", questionType);
+    if (topic) q = q.ilike("topic", `%${topic}%`);
+    if (search) q = q.ilike("question", `%${search}%`);  // still search in question text, just don't return it
+
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+  }, [eventId, topic, search, difficulty, questionType]);
+
+  const { data, error, loading, refetch } = useQuery(cacheKey, queryFn);
+  return { questions: data || [], loading, error, refetch };
+}
+
+// ─── Question Detail (full data, loaded on demand) ──────────────
+
+/**
+ * Fetch full question data on demand (when user expands/clicks into it).
+ * Includes question text, options, correct answer, editing history, etc.
+ *
+ * @param {number} questionId - The question to load (can be null to disable)
+ */
+export function useQuestionDetail(questionId) {
+  const queryFn = useCallback(async () => {
+    if (!questionId) return null;
+    const { data, error } = await supabase
+      .from("quiz_questions")
+      .select("*")
+      .eq("id", questionId)
+      .single();
+    if (error) throw error;
+    return data;
+  }, [questionId]);
+
+  const { data, error, loading } = useQuery(
+    questionId ? `question-detail-${questionId}` : null,
+    queryFn,
+    { staleTime: 300_000, enabled: !!questionId }
+  );
+
+  return { question: data, loading, error };
+}
+
+// ─── Question Browser (legacy, includes full question data) ─────
 
 /**
  * Browse all questions with optional filters.
+ * DEPRECATED: Use useQuestionBrowserSummary + useQuestionDetail for better performance.
+ *
  * @param {Object} filters - { eventId, topic, search, difficulty, questionType }
  */
 export function useQuestionBrowser(filters = {}) {

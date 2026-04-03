@@ -7,6 +7,7 @@ import { EVENTS, STUDENTS, PARTNERSHIPS, generateMastery } from '../data/mockDat
 import { IS_PRODUCTION } from '../lib/featureFlags';
 import { useAppContext } from '../lib/AppContext';
 import { useUnifiedEvents } from '../hooks/useUnifiedData';
+import { useDebounce } from '../hooks/useDebounce';
 import { supabase } from '../lib/supabase';
 import { useQuery } from '../lib/query';
 import EventManagementModal from './EventManagementModal';
@@ -76,6 +77,7 @@ export default function EventsListPage() {
   // ── Search / filter (coach only) ────────────────────────────
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
+  const debouncedSearch = useDebounce(search, 200);
 
   // ── Compute per-event stats for coach view ──────────────────
   const coachEventStats = useMemo(() => {
@@ -185,12 +187,12 @@ export default function EventsListPage() {
     if (filterType !== "all") {
       list = list.filter(e => e.type === filterType);
     }
-    if (search) {
-      const q = search.toLowerCase();
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
       list = list.filter(e => e.name.toLowerCase().includes(q));
     }
     return list;
-  }, [events, filterType, search, isCoach]);
+  }, [events, filterType, debouncedSearch, isCoach]);
 
   // ── Loading ─────────────────────────────────────────────────
   if (eventsLoading || coachLoading) {

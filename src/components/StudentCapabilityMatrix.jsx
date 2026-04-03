@@ -4,6 +4,7 @@ import { SkeletonDashboard } from './shared/Skeleton';
 import { C } from '../ui';
 import { IS_PRODUCTION } from '../lib/featureFlags';
 import { EVENTS, STUDENTS, generateMastery } from '../data/mockData';
+import { useDebounce } from '../hooks/useDebounce';
 import { supabase, resilientQuery } from '../lib/supabase';
 
 // ═══════════════════════════════════════════════════════════════
@@ -24,6 +25,8 @@ export default function StudentCapabilityMatrix() {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('name');
   const [sortAsc, setSortAsc] = useState(true);
+
+  const debouncedSearchTerm = useDebounce(searchTerm, 200);
 
   // ── Production data ──────────────────────────────────────────
   const [prodStudents, setProdStudents] = useState([]);
@@ -127,7 +130,7 @@ export default function StudentCapabilityMatrix() {
   // ── Filter + sort ────────────────────────────────────────────
   const filteredStudents = useMemo(() => {
     let list = studentData.filter(s =>
-      (s.name || '').toLowerCase().includes(searchTerm.toLowerCase())
+      (s.name || '').toLowerCase().includes(debouncedSearchTerm.toLowerCase())
     );
     list = [...list].sort((a, b) => {
       if (sortBy === 'name') {
@@ -138,7 +141,7 @@ export default function StudentCapabilityMatrix() {
       return sortAsc ? a.overallAvg - b.overallAvg : b.overallAvg - a.overallAvg;
     });
     return list;
-  }, [studentData, searchTerm, sortBy, sortAsc]);
+  }, [studentData, debouncedSearchTerm, sortBy, sortAsc]);
 
   // ── Loading ──────────────────────────────────────────────────
   if (dataLoading) {

@@ -12,6 +12,7 @@ import { useTeamManagement } from '../hooks/useTeamManagement';
 import { useCompetitions } from '../hooks/useCompetitions';
 import { supabase } from '../lib/supabase';
 import { useQuery } from '../lib/query';
+import { prefetchLikelyRoutes } from '../lib/prefetch';
 
 export default function CoachDashboard({ isAdmin }) {
   const navigate = useNavigate();
@@ -119,6 +120,9 @@ export default function CoachDashboard({ isAdmin }) {
     { staleTime: 5 * 60 * 1000, enabled: IS_PRODUCTION && !!activeEventId }
   );
   const masteryByStudent = masteryByStudentData || {};
+
+  // Prefetch likely-next routes after dashboard renders
+  useEffect(() => { prefetchLikelyRoutes(); }, []);
 
   // ── Summary stats ──────────────────────────────────
   const totalMembers = IS_PRODUCTION

@@ -1,5 +1,52 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase, resilientQuery } from "../lib/supabase";
+import { useQuery } from "../lib/query";
+
+// ─── Roster Summary (lightweight, for dashboard display) ────────
+
+/**
+ * Fetch lightweight roster summary for quick dashboard display.
+ * Returns counts and basic user info (id, name, initials, avatar color).
+ * Does NOT include full user details or event assignments.
+ */
+export function useRosterSummary() {
+  const { data, loading, error } = useQuery(
+    "roster-summary",
+    async () => {
+      const { data, error } = await supabase
+        .from("users")
+        .select("id, full_name, initials, avatar_color, role, is_alumni")
+        .or("is_alumni.eq.false,is_alumni.is.null")
+        .order("full_name");
+      if (error) throw error;
+
+      const students = data.filter(u => u.role === "student");
+      const coaches = data.filter(u => u.role === "head_coach" || u.role === "assistant_coach");
+
+      return {
+        totalStudents: students.length,
+        totalCoaches: coaches.length,
+        students: students.map(s => ({
+          id: s.id,
+          full_name: s.full_name,
+          initials: s.initials,
+          avatar_color: s.avatar_color,
+        })),
+        coaches: coaches.map(c => ({
+          id: c.id,
+          full_name: c.full_name,
+          initials: c.initials,
+          avatar_color: c.avatar_color,
+        })),
+      };
+    },
+    { staleTime: 120_000 }
+  );
+
+  return { summary: data, loading, error };
+}
+
+// ─── Full Team Management (for the management page) ──────────────
 
 /**
  * Hook for head coach team management:
